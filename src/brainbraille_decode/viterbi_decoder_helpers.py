@@ -559,3 +559,13 @@ def preprocess_each_fold(
         return cv_train_X_i, cv_test_X_i
     else:
         return cv_train_X_i
+
+
+def pp_array(arr, delimiter="\t"):
+    print(
+        np.array2string(
+            np.array(arr),
+            separator=delimiter,
+            formatter={"float_kind": lambda x: f"{x:6.4f}"},
+        )[1:-1]
+    )
