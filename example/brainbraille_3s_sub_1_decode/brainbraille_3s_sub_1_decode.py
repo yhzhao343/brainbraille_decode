@@ -1,19 +1,29 @@
 import shelve
 import msgpack
 import msgpack_numpy as m
-from fastFMRI.file_helpers import load_file
+from fastFMRI.file_helpers import write_file, load_file
 import numpy as np
 import time
 from sklearn.svm import SVC
-from joblib import Parallel, delayed
-from scipy.signal import butter, sosfilt
-from sklearn.metrics import classification_report
 from sklearn.pipeline import Pipeline
 from datetime import datetime
-from brainbraille_decode.HTK import *
-from brainbraille_decode.metrics import *
-from brainbraille_decode.preprocessing import *
-from brainbraille_decode.viterbi_decoder import *
+from brainbraille_decode.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    information_transfer_per_selection,
+    tok_acc,
+    tok_corr,
+    letter_label_to_word_label,
+    naive_information_transfer_per_selection,
+)
+from brainbraille_decode.preprocessing import DataSlice, ButterworthBandpassFilter
+from brainbraille_decode.viterbi_decoder import (
+    BrainBrailleDataToTransProbCV,
+    TransProbToStateProb,
+    StateProbaToLetterProb,
+    LetterProbaToLetterDecode,
+    letter_label_to_transition_label,
+)
 import os
 
 m.patch()
@@ -33,7 +43,8 @@ session_workspace.close()
 file_path = (
     f"./brainbraille_intermediate_{experiment}_result_extracted_data_sub_{subject}.bin"
 )
-extracted_data = msgpack.unpackb(load_file(file_path, "rb"))
+if os.path.exists(file_path):
+    extracted_data = msgpack.unpackb(load_file(file_path, "rb"))
 # ----- Loading data end ----- #
 
 # ----- set up results book keeping data structure start ----- #
@@ -86,9 +97,11 @@ for split_i, split in enumerate(experiment_split):
     test_data = [d[:, 0:6] for d in test_data]
     test_label = extracted_data_label["test"]["label"]
     test_label_list += test_label
-    
+
     inner_n_jobs = -1
-    data_slicer = DataSlice(EXTRA_FRAME, DELAY_FRAME, EVENT_LEN_FRAME, EVENT_INTERVAL_FRAME)
+    data_slicer = DataSlice(
+        EXTRA_FRAME, DELAY_FRAME, EVENT_LEN_FRAME, EVENT_INTERVAL_FRAME
+    )
     svc_param = {
         "C": [1.0, 1000.0],
         "gamma": [0.01, 0.05],
@@ -155,21 +168,33 @@ for split_i, split in enumerate(experiment_split):
     print(f"total time {fit_end_time - fit_start_time}s")
 
     naive_cm_list.append(state_prob_to_letter_prob.get_naive_letter_cm(test_label))
-    test_trans_class = letter_label_to_transition_label(test_label, LETTERS_TO_DOT, regressor_types)
+    test_trans_class = letter_label_to_transition_label(
+        test_label, LETTERS_TO_DOT, regressor_types
+    )
     pred_trans_class = convert_to_trans_prob_CV.get_trans_class()
-    naive_acc = np.diag(naive_cm_list[-1]).sum() /  naive_cm_list[-1].sum()
-    print(f'--- naive letter {naive_acc:.3f}')
+    naive_acc = np.diag(naive_cm_list[-1]).sum() / naive_cm_list[-1].sum()
+    print(f"--- naive letter {naive_acc:.3f}")
 
     for r_i, r in enumerate(regressor_types):
-        pred_trans_label_by_type[r] += [item[r_i] for run in pred_trans_class for item in run]
-        y_trans_label_by_type[r] += [item[r_i] for run in test_trans_class for item in run]
+        pred_trans_label_by_type[r] += [
+            item[r_i] for run in pred_trans_class for item in run
+        ]
+        y_trans_label_by_type[r] += [
+            item[r_i] for run in test_trans_class for item in run
+        ]
 
-    stimulus_letter_viterbi_cm_list.append(viterbi_decoder.obtain_letter_viterbi_cm(test_label))
+    stimulus_letter_viterbi_cm_list.append(
+        viterbi_decoder.obtain_letter_viterbi_cm(test_label)
+    )
     stimulus_pred_y_list += test_predict_letter
     naive_prob_letter_label_list += viterbi_decoder.naive_prob_letter_label
-    stimulus_pred_bigram_weighted_letter_label_list += viterbi_decoder.bigram_weighted_letter_label
-    stimulus_pred_letter_viterbi_decode_letter_label_list += viterbi_decoder.letter_viterbi_decode_letter_label
-    print(f'--- stimulus {accuracy_score(test_label[0], stimulus_pred_y_list[-1]):.3f}')
+    stimulus_pred_bigram_weighted_letter_label_list += (
+        viterbi_decoder.bigram_weighted_letter_label
+    )
+    stimulus_pred_letter_viterbi_decode_letter_label_list += (
+        viterbi_decoder.letter_viterbi_decode_letter_label
+    )
+    print(f"--- stimulus {accuracy_score(test_label[0], stimulus_pred_y_list[-1]):.3f}")
 
     viterbi_decoder.re_tune(
         bigram_dict=stimulus_letter_bigram_prob_dict,
@@ -179,10 +204,18 @@ for split_i, split in enumerate(experiment_split):
     )
 
     aw2aw_stimulus_pred_y_list += viterbi_decoder.predict()
-    aw2aw_stimulus_pred_bigram_weighted_letter_label_list += viterbi_decoder.bigram_weighted_letter_label
-    aw2aw_stimulus_pred_letter_viterbi_decode_letter_label_list += viterbi_decoder.letter_viterbi_decode_letter_label
-    mackenzie_soukoreff_letter_viterbi_cm_list.append(viterbi_decoder.obtain_letter_viterbi_cm(test_label))
-    print(f'--- aw2aw_stimulus {accuracy_score(test_label[0], aw2aw_stimulus_pred_y_list[-1]):.3f}')
+    aw2aw_stimulus_pred_bigram_weighted_letter_label_list += (
+        viterbi_decoder.bigram_weighted_letter_label
+    )
+    aw2aw_stimulus_pred_letter_viterbi_decode_letter_label_list += (
+        viterbi_decoder.letter_viterbi_decode_letter_label
+    )
+    mackenzie_soukoreff_letter_viterbi_cm_list.append(
+        viterbi_decoder.obtain_letter_viterbi_cm(test_label)
+    )
+    print(
+        f"--- aw2aw_stimulus {accuracy_score(test_label[0], aw2aw_stimulus_pred_y_list[-1]):.3f}"
+    )
 
     viterbi_decoder.re_tune(
         bigram_dict=mackenzie_soukoreff_letter_bigram_prob_dict,
@@ -191,9 +224,15 @@ for split_i, split in enumerate(experiment_split):
         words_dictionary=unique_mackenzie_soukoreff_word_dictionary,
     )
     mackenzie_soukoreff_pred_y_list += viterbi_decoder.predict()
-    mackenzie_soukoreff_pred_bigram_weighted_letter_label_list += viterbi_decoder.bigram_weighted_letter_label
-    mackenzie_soukoreff_pred_letter_viterbi_decode_letter_label_list += viterbi_decoder.letter_viterbi_decode_letter_label
-    print(f'--- mackenzie_soukoreff {accuracy_score(test_label[0], mackenzie_soukoreff_pred_y_list[-1]):.3f}')
+    mackenzie_soukoreff_pred_bigram_weighted_letter_label_list += (
+        viterbi_decoder.bigram_weighted_letter_label
+    )
+    mackenzie_soukoreff_pred_letter_viterbi_decode_letter_label_list += (
+        viterbi_decoder.letter_viterbi_decode_letter_label
+    )
+    print(
+        f"--- mackenzie_soukoreff {accuracy_score(test_label[0], mackenzie_soukoreff_pred_y_list[-1]):.3f}"
+    )
 
     viterbi_decoder.re_tune(
         bigram_dict=mackenzie_soukoreff_letter_bigram_prob_dict,
@@ -202,9 +241,15 @@ for split_i, split in enumerate(experiment_split):
         words_dictionary=unique_mackenzie_soukoreff_word_dictionary,
     )
     aw2aw_mackenzie_soukoreff_pred_y_list += viterbi_decoder.predict()
-    aw2aw_mackenzie_soukoreff_pred_bigram_weighted_letter_label_list += viterbi_decoder.bigram_weighted_letter_label
-    aw2aw_mackenzie_soukoreff_pred_letter_viterbi_decode_letter_label_list += viterbi_decoder.letter_viterbi_decode_letter_label
-    print(f'--- mackenzie_soukoreff aw2aw {accuracy_score(test_label[0], aw2aw_mackenzie_soukoreff_pred_y_list[-1]):.3f}')
+    aw2aw_mackenzie_soukoreff_pred_bigram_weighted_letter_label_list += (
+        viterbi_decoder.bigram_weighted_letter_label
+    )
+    aw2aw_mackenzie_soukoreff_pred_letter_viterbi_decode_letter_label_list += (
+        viterbi_decoder.letter_viterbi_decode_letter_label
+    )
+    print(
+        f"--- mackenzie_soukoreff aw2aw {accuracy_score(test_label[0], aw2aw_mackenzie_soukoreff_pred_y_list[-1]):.3f}"
+    )
     e_time = time.time()
     pred_y_str = [e for run_i in test_predict_letter for e in run_i]
     test_label_str = [e for run_i in test_label for e in run_i]
@@ -392,9 +437,7 @@ corr_list = np.array(
     ]
 )
 print(np.array2string(acc_list, precision=4, suppress_small=True))
-print(
-    f"word results:\nAccuracy:{np.mean(acc_list):6.4f} std:{np.std(acc_list):6.4f}\n"
-)
+print(f"word results:\nAccuracy:{np.mean(acc_list):6.4f} std:{np.std(acc_list):6.4f}\n")
 print(np.array2string(corr_list, precision=4, suppress_small=True))
 print(
     f"word corr results:\nCorrect:{np.mean(corr_list):6.4f} std:{np.std(corr_list):6.4f}"
@@ -498,9 +541,7 @@ accuracy_list = np.array(
     ]
 )
 letter_viterbi_mean_acc = np.mean(accuracy_list)
-print(
-    f"letter viterbi:\n{letter_viterbi_mean_acc} std:{np.std(accuracy_list):6.4f}"
-)
+print(f"letter viterbi:\n{letter_viterbi_mean_acc} std:{np.std(accuracy_list):6.4f}")
 
 # cm = np.sum(mackenzie_soukoreff_letter_viterbi_cm_list, axis=0)
 cm_list = [
@@ -606,25 +647,19 @@ print("grammar viterbi:")
 acc_list = np.array(
     [
         tok_acc(label, pred_y)
-        for label, pred_y in zip(
-            test_label_list, aw2aw_mackenzie_soukoreff_pred_y_list
-        )
+        for label, pred_y in zip(test_label_list, aw2aw_mackenzie_soukoreff_pred_y_list)
     ]
 )
 corr_list = np.array(
     [
         tok_corr(label, pred_y)
-        for label, pred_y in zip(
-            test_label_list, aw2aw_mackenzie_soukoreff_pred_y_list
-        )
+        for label, pred_y in zip(test_label_list, aw2aw_mackenzie_soukoreff_pred_y_list)
     ]
 )
 accuracy_list = np.array(
     [
         accuracy_score(label, pred_y)
-        for label, pred_y in zip(
-            test_label_list, aw2aw_mackenzie_soukoreff_pred_y_list
-        )
+        for label, pred_y in zip(test_label_list, aw2aw_mackenzie_soukoreff_pred_y_list)
     ]
 )
 print(np.array2string(accuracy_list, precision=4, suppress_small=True))
@@ -638,8 +673,7 @@ print(np.array2string(corr_list, precision=4, suppress_small=True))
 print(f"letter corr:\n{np.mean(corr_list):6.4f}\t{np.std(corr_list):6.4f}")
 print("-----------")
 test_label_word_list = [
-    letter_label_to_word_label(pred)
-    for pred in aw2aw_mackenzie_soukoreff_pred_y_list
+    letter_label_to_word_label(pred) for pred in aw2aw_mackenzie_soukoreff_pred_y_list
 ]
 pred_y_word_list = [letter_label_to_word_label(label) for label in test_label_list]
 acc_list = np.array(
