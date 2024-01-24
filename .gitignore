@@ -161,3 +161,4 @@ cython_debug/
 
 pyrightconfig.json
 sftp-config.json
+/example/brainbraille_3s_sub_1_decode/brainbraille_SVM_result_cache_*
