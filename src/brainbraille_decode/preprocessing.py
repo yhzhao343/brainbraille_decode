@@ -2,6 +2,12 @@ import numpy as np
 from scipy.signal import butter, sosfilt
 from sklearn.base import BaseEstimator, TransformerMixin
 from joblib import Parallel, delayed
+from fastFMRI.roi import (
+    get_roi_from_flatten_t,
+    get_calib_roi_from_flatten_roi,
+    get_aggregated_roi_from_flatten,
+    get_calib_roi_from_flatten_roi,
+)
 
 
 def flatten_fold(arr):
@@ -167,3 +173,93 @@ class DataTrimmer(BaseEstimator, TransformerMixin):
             x_i[self.num_delay_frame : len(x_i) - self.num_frame_to_trim_at_end, :]
             for x_i in X
         ]
+
+
+class ROIandCalibrationExtractor(BaseEstimator, TransformerMixin):
+    def __init__(
+        self,
+        t_threshold_quantile=0.98,
+        cc_discard_size_ratio=0.5,
+        no_overlap=True,
+        num_contrast_to_keep=6,
+        aggregated_threshold_quantile=0.8,
+        aggregated_cc_discard_size_ratio=0.5,
+        aggregated_no_overlap=True,
+        roi_by_sub=None,
+        calib_roi_by_sub=None,
+    ):
+        self.t_threshold_quantile = t_threshold_quantile
+        self.cc_discard_size_ratio = cc_discard_size_ratio
+        self.no_overlap = no_overlap
+        self.num_contrast_to_keep = num_contrast_to_keep
+        self.aggregated_threshold_quantile = aggregated_threshold_quantile
+        self.aggregated_cc_discard_size_ratio = aggregated_cc_discard_size_ratio
+        self.aggregated_no_overlap = aggregated_no_overlap
+        self.roi_by_sub = {}
+        if roi_by_sub is not None:
+            self.roi_by_sub.update(roi_by_sub)
+        self.calib_roi_by_sub = {}
+        if calib_roi_by_sub is not None:
+            self.calib_roi_by_sub.update(calib_roi_by_sub)
+
+    def fit(self, X, y=None):
+        for x_i in X:
+            x_i["roi"] = get_roi_from_flatten_t(
+                x_i["t_val"],
+                x_i["motor_mask"],
+                t_threshold_quantile=self.t_threshold_quantile,
+                cc_discard_size_ratio=self.cc_discard_size_ratio,
+                no_overlap=self.no_overlap,
+                num_contrast_to_keep=self.num_contrast_to_keep,
+            )
+            x_i["calib_roi"] = get_calib_roi_from_flatten_roi(x_i["roi"])
+        subs = np.array([info["sub"] for info in X], dtype=int)
+        X_ind = np.arange(len(X))
+        unique_subs = np.unique(subs)
+        for sub_i in unique_subs:
+            sub_i_index = X_ind[subs == sub_i]
+            X_sub_i = [X[i] for i in sub_i_index]
+            self.roi_by_sub[sub_i] = get_aggregated_roi_from_flatten(
+                [X_sub_i_j["roi"] for X_sub_i_j in X_sub_i],
+                [X_sub_i_j["motor_mask"] for X_sub_i_j in X_sub_i],
+                aggregation_threshold_quantile=self.aggregated_threshold_quantile,
+                cc_discard_size_ratio=self.aggregated_cc_discard_size_ratio,
+                no_overlap=self.aggregated_no_overlap,
+            )
+            self.calib_roi_by_sub[sub_i] = get_calib_roi_from_flatten_roi(
+                self.roi_by_sub[sub_i]
+            )
+        return self
+
+    def transform(self, X, y=None):
+        extracted_X = np.array(
+            [
+                np.array(
+                    [
+                        np.array(x_i["flatten_func_image"][roi_i, :]).sum(axis=0)
+                        for roi_i in self.roi_by_sub[int(x_i["sub"])][
+                            x_i["motor_mask"], :
+                        ].T
+                    ]
+                ).T
+                for x_i in X
+            ]
+        )
+        extracted_X_calib = np.array(
+            [
+                np.array(
+                    x_i["flatten_func_image"][
+                        self.calib_roi_by_sub[int(x_i["sub"])][x_i["motor_mask"]]
+                    ]
+                ).sum(axis=0)
+                for x_i in X
+            ]
+        )
+
+        relative_data_X = [(x_i - x_i[0, :]) / x_i[0, :] for x_i in extracted_X]
+        relative_calib_X = [(x_i - x_i[0]) / x_i[0] for x_i in extracted_X_calib]
+        calibrated_X = [
+            data_i - calib_i[:, np.newaxis]
+            for data_i, calib_i in zip(relative_data_X, relative_calib_X)
+        ]
+        return calibrated_X
