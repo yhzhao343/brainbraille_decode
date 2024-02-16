@@ -117,7 +117,7 @@ class HTKHMMDecoder:
         skip=0,
         label_time_period_ms=600,
         num_mixtures=1,
-        use_full_cov=False
+        use_full_cov=False,
     ):
         self.dict_string = dict_string
         self.grammar_string = grammar_string
@@ -166,7 +166,7 @@ class HTKHMMDecoder:
             SUPRESS_ALL_SUBPROCESS_OUTPUT=True,
             label_time_period_ms=self.label_time_period_ms,
             num_mixtures=self.num_mixtures,
-            use_full_cov=self.use_full_cov
+            use_full_cov=self.use_full_cov,
         )
         self.clf.fit(X, y)
         return self
