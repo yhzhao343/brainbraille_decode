@@ -118,6 +118,7 @@ class HTKHMMDecoder:
         label_time_period_ms=600,
         num_mixtures=1,
         use_full_cov=False,
+        SUPRESS_ALL_SUBPROCESS_OUTPUT=True
     ):
         self.dict_string = dict_string
         self.grammar_string = grammar_string
@@ -134,6 +135,7 @@ class HTKHMMDecoder:
         self.label_time_period_ms = label_time_period_ms
         self.num_mixtures = num_mixtures
         self.use_full_cov = use_full_cov
+        self.SUPRESS_ALL_SUBPROCESS_OUTPUT = SUPRESS_ALL_SUBPROCESS_OUTPUT
 
     def fit(self, X, y, insertion_penalty=None):
         if insertion_penalty is not None:
@@ -163,7 +165,7 @@ class HTKHMMDecoder:
             HTK_PATH=self.HTK_PATH,
             SRILM_PATH=self.SRILM_PATH,
             num_cpu=self.num_cpu,
-            SUPRESS_ALL_SUBPROCESS_OUTPUT=True,
+            SUPRESS_ALL_SUBPROCESS_OUTPUT=self.SUPRESS_ALL_SUBPROCESS_OUTPUT,
             label_time_period_ms=self.label_time_period_ms,
             num_mixtures=self.num_mixtures,
             use_full_cov=self.use_full_cov,
