@@ -109,7 +109,15 @@ class HTKHMMDecoder:
         use_tied_states=True,
         add_monophone_back=False,
         insertion_penalty=0,
+        temp_dir="/tmp/.gt2k_py",
+        HTK_PATH=None,
+        SRILM_PATH=None,
+        num_cpu=1,
         num_states=None,
+        skip=0,
+        label_time_period_ms=600,
+        num_mixtures=1,
+        use_full_cov=False
     ):
         self.dict_string = dict_string
         self.grammar_string = grammar_string
@@ -118,6 +126,14 @@ class HTKHMMDecoder:
         self.add_monophone_back = add_monophone_back
         self.insertion_penalty = insertion_penalty
         self.num_states = num_states
+        self.temp_dir = temp_dir
+        self.num_cpu = num_cpu
+        self.HTK_PATH = HTK_PATH
+        self.SRILM_PATH = SRILM_PATH
+        self.skip = skip
+        self.label_time_period_ms = label_time_period_ms
+        self.num_mixtures = num_mixtures
+        self.use_full_cov = use_full_cov
 
     def fit(self, X, y, insertion_penalty=None):
         if insertion_penalty is not None:
@@ -128,9 +144,10 @@ class HTKHMMDecoder:
         y = [[e if e != " " else "_space_" for e in y_i] for y_i in y]
 
         self.clf = HTK_Hmm(
+            temp_dir=self.temp_dir,
             num_states=num_states,
             bi_tri_phone_edcmd=self.bi_tri_phone_edcmd,
-            skip=0,
+            skip=self.skip,
             use_tied_states=self.use_tied_states,
             add_monophone_back=self.add_monophone_back,
             dict_string=self.dict_string,
@@ -143,8 +160,13 @@ class HTKHMMDecoder:
             bi_tri_phone_tied_HERest_min_var=0.001,
             TB_threshold=0,
             convert_to_tied_state_threshold=0,
-            num_cpu=1,
+            HTK_PATH=self.HTK_PATH,
+            SRILM_PATH=self.SRILM_PATH,
+            num_cpu=self.num_cpu,
             SUPRESS_ALL_SUBPROCESS_OUTPUT=True,
+            label_time_period_ms=self.label_time_period_ms,
+            num_mixtures=self.num_mixtures,
+            use_full_cov=self.use_full_cov
         )
         self.clf.fit(X, y)
         return self
