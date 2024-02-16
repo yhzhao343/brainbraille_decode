@@ -123,9 +123,7 @@ class HTKHMMDecoder:
         if insertion_penalty is not None:
             self.insertion_penalty = insertion_penalty
         num_states = (
-            int(np.array(X).shape[1] / np.array(y).shape[1])
-            if self.num_states is None
-            else self.num_states
+            int(len(X[0]) / len(y[0])) if self.num_states is None else self.num_states
         )
         y = [[e if e != " " else "_space_" for e in y_i] for y_i in y]
 
