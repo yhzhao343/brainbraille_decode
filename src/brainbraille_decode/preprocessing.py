@@ -236,7 +236,9 @@ class ROIandCalibrationExtractor(BaseEstimator, TransformerMixin):
             [
                 np.array(
                     [
-                        np.array(x_i["flatten_func_image"][roi_i, :]).sum(axis=0)
+                        np.array(
+                            x_i["flatten_func_image"][roi_i, :], dtype=np.float64
+                        ).sum(axis=0)
                         for roi_i in self.roi_by_sub[int(x_i["sub"])][
                             x_i["motor_mask"], :
                         ].T
