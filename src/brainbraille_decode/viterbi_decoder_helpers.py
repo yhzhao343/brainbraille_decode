@@ -2,7 +2,7 @@ import numpy as np
 from numba import jit, prange, f8, i4, i8, b1
 import sys
 import numba as nb
-from .preprocessing import ZNormalizeByGroup, flatten_fold, flatten_feature
+from .preprocessing import flatten_fold, flatten_feature
 from .metrics import accuracy_score
 
 

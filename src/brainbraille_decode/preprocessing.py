@@ -6,7 +6,6 @@ from fastFMRI.roi import (
     get_roi_from_flatten_t,
     get_calib_roi_from_flatten_roi,
     get_aggregated_roi_from_flatten,
-    get_calib_roi_from_flatten_roi,
 )
 
 
