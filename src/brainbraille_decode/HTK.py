@@ -45,61 +45,6 @@ def get_word_lattice_from_grammar(htk_grammar_string, HTK_PATH=None):
     return word_lattice_string
 
 
-def get_ngram_prob_dict(content_string, n, space_tok="_space_", use_log_prob=True):
-    content_string_bigram_string = get_srilm_ngram(
-        content_string, n=n, _no_sos="", _no_eos="", _sort=""
-    )
-    content_string_bigram_string = content_string_bigram_string.split("\n\n\\end\\")[0]
-    log_prob_list = []
-    for i in range(n, 0, -1):
-        splited_string = content_string_bigram_string.split(f"\\{i}-grams:\n")
-        content_string_bigram_string = splited_string[0]
-        i_gram_string = splited_string[1].rstrip()
-        i_gram_string_lines = [line.split() for line in i_gram_string.split("\n")]
-        i_gram_string_lines = [
-            [item if item != space_tok else " " for item in line[0 : i + 1]]
-            for line in i_gram_string_lines
-        ]
-        log_prob_dict = {}
-
-        probs = np.array([float(line[0]) for line in i_gram_string_lines])
-        if not use_log_prob:
-            probs = np.power(10, probs)
-
-        for line_i, items in enumerate(i_gram_string_lines):
-            if ("<s>" in items) or ("</s>" in items):
-                continue
-            second_level_key = items[-1]
-            if i > 1:
-                key = "".join(items[1:-1])
-                if key not in log_prob_dict:
-                    log_prob_dict[key] = {}
-                log_prob_dict[key][second_level_key] = probs[line_i]
-            else:
-                log_prob_dict[second_level_key] = probs[line_i]
-        log_prob_list.append(log_prob_dict)
-    return log_prob_list
-
-
-def get_srilm_ngram(content, n=2, SRILM_PATH=None, **kwargs):
-    if SRILM_PATH is None:
-        SRILM_PATH = os.environ.get("SRILM_PATH")
-    cmd = f"{SRILM_PATH}/ngram-count"
-    content_path = "./content.txt"
-    write_file(content, content_path)
-    ngram_out_path = f"./{n}gram.lm"
-    params = ["-text", content_path, "-order", str(n), "-lm", ngram_out_path] + [
-        f'{key_value[i].replace("_", "-")}' if i == 0 else str(key_value[i])
-        for key_value in kwargs.items()
-        for i in range(2)
-    ]
-    subprocess.run([cmd] + params, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    ngram_content = load_file(ngram_out_path)
-    delete_file_if_exists(content_path)
-    delete_file_if_exists(ngram_out_path)
-    return ngram_content
-
-
 class HTKHMMDecoder:
     def __init__(
         self,
