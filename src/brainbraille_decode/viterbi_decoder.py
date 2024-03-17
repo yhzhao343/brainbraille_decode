@@ -6,7 +6,7 @@ from sklearn.model_selection import KFold
 import copy
 from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin
 from lipo import GlobalOptimizer
-
+from .lm import add_k_gen, counts_to_proba
 
 class BrainBrailleSegmentedDataToTransProb(BaseEstimator, TransformerMixin):
     def __init__(self, LETTERS_TO_DOT, region_order, clf_per_r, flatten_feature=True):
@@ -321,6 +321,10 @@ class LetterProbaToLetterDecode(BaseEstimator, ClassifierMixin):
         LETTERS_TO_DOT,
         region_order,
         bigram_dict=None,
+        unigram_counts=None,
+        unigram_smoothing_k=0,
+        bigram_counts=None,
+        bigram_smoothing_k=0,
         words_node_symbols=None,
         words_link_start_end=None,
         words_dictionary=None,
@@ -335,10 +339,23 @@ class LetterProbaToLetterDecode(BaseEstimator, ClassifierMixin):
         random_state=42,
         n_calls=30,
     ):
+        self.bigram_counts = None
+        self.bigram_matrix = None
+        self.bigram_log_matrix = None
+        self.unigram_counts = None
+        self.unigram_prior = None
+        self.unigram_log_matrix = None
+        self.unigram_smoothing_k = unigram_smoothing_k
+        self.bigram_smoothing_k = bigram_smoothing_k
         self.region_order = region_order
         self.regressor_to_ind = {r: ind for ind, r in enumerate(region_order)}
+        if unigram_counts is not None:
+            self.
         self.add_LETTERS_TO_DOT(LETTERS_TO_DOT)
-        self.add_bigram_dict(bigram_dict, softmax_on_bigram_matrix)
+        if bigram_counts is not None:
+            self.add_bigram_counts_matrix(bigram_counts, self.bigram_smoothing_k)
+        elif bigram_dict is not None:
+            self.add_bigram_dict(bigram_dict, softmax_on_bigram_matrix)
         self.words_node_symbols = words_node_symbols
         self.words_link_start_end = words_link_start_end
         self.words_dictionary = words_dictionary
@@ -376,7 +393,20 @@ class LetterProbaToLetterDecode(BaseEstimator, ClassifierMixin):
                 ] = onoff
         self.region_by_letter_arr = region_by_letter_arr
 
+    def add_unigram_counts_matrix(self, unigram_counts, k):
+        if unigram_counts is not None:
+            self.unigram_counts = unigram_counts
+            self.unigram_prior = counts_to_proba(unigram_counts, add_k_gen(k))
+            self.unigram_log_matrix = np.log10(self.unigram_prior)
+
+    def add_bigram_counts_matrix(self, bigram_counts, k):
+        if bigram_counts is not None:
+            self.bigram_counts = bigram_counts
+            self.bigram_matrix = counts_to_proba(bigram_counts, add_k_gen(k))
+            self.bigram_log_matrix = np.log10(self.bigram_matrix)
+
     def add_bigram_dict(self, bigram_dict, softmax_on_bigram_matrix=False):
+        # Legacy code! Do not use
         if bigram_dict is not None:
             self.bigram_matrix = np.zeros((self.letters.size, self.letters.size))
             for prev, next_prob in bigram_dict.items():
@@ -390,9 +420,6 @@ class LetterProbaToLetterDecode(BaseEstimator, ClassifierMixin):
             if softmax_on_bigram_matrix:
                 self.bigram_matrix = softmax(self.bigram_matrix)
             self.bigram_log_matrix = np.log10(self.bigram_matrix)
-        else:
-            self.bigram_matrix = None
-            self.bigram_log_matrix = None
 
     @staticmethod
     def tune_insertion_penalty(
