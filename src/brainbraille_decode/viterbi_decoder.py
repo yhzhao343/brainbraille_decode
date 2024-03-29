@@ -923,3 +923,26 @@ class BrainBrailleDataToTransProbCV(BaseEstimator, TransformerMixin):
 
     def get_trans_class(self, trans_proba=None):
         return self.sliced_data_to_trans_prob.get_trans_class(trans_proba)
+
+class BrainBrialleTransProbToPseudoEmissionProb(BaseEstimator, TransformerMixin):
+    def __init__(self, LETTERS_TO_DOT, region_order):
+        self.LETTERS_TO_DOT = LETTERS_TO_DOT
+        self.region_order = region_order
+
+    def fit(self, X, y):
+        y_trans = np.array(
+            letter_label_to_transition_label(y, self.LETTERS_TO_DOT, self.region_order),
+            dtype=object,
+        )
+        num_run, num_sample, num_reg = y_trans.shape
+        y_trans_concat = y_trans.reshape((num_run * num_sample, num_reg))
+        y_trans_prior = np.zeros((num_reg, 4))
+        for i in range(4):
+            y_trans_prior[:, i] = np.sum(y_trans_concat == i, axis=0) / y_trans_concat.shape[0]
+        self.y_trans_prior = y_trans_prior
+        self.y_trans_prior_scaled = self.y_trans_prior / np.min(self.y_trans_prior, axis=1)[:, np.newaxis]
+        return self
+
+    def transform(self, X):
+        transformed_X = [x_i / self.y_trans_prior_scaled for x_i in X]
+        return transformed_X
