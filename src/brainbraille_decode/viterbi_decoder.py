@@ -7,6 +7,7 @@ import copy
 from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin
 from lipo import GlobalOptimizer
 from .lm import add_k_gen, counts_to_proba
+from .preprocessing import ZNormalizeByGroup
 
 class BrainBrailleSegmentedDataToTransProb(BaseEstimator, TransformerMixin):
     def __init__(self, LETTERS_TO_DOT, region_order, clf_per_r, flatten_feature=True):
