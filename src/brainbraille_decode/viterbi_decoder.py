@@ -350,7 +350,7 @@ class LetterProbaToLetterDecode(BaseEstimator, ClassifierMixin):
         self.region_order = region_order
         self.regressor_to_ind = {r: ind for ind, r in enumerate(region_order)}
         if unigram_counts is not None:
-            self.
+            self.add_unigram_counts_matrix(unigram_counts, self.unigram_smoothing_k)
         self.add_LETTERS_TO_DOT(LETTERS_TO_DOT)
         if bigram_counts is not None:
             self.add_bigram_counts_matrix(bigram_counts, self.bigram_smoothing_k)
