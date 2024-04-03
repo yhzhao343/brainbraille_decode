@@ -53,6 +53,13 @@ def letter_label_to_transition_label(y, LETTERS_TO_DOT, region_order):
     ]
     return transition_label
 
+def letter_label_to_state_label(y, LETTERS_TO_DOT, region_order):
+    dot_label = np.array([
+        [[LETTERS_TO_DOT[l_i][region] for region in region_order] for l_i in run_i]
+        for run_i in y
+    ])
+    return dot_label
+
 
 @jit(
     f8[:, ::1](f8[:, :], b1[:, ::1], f8[:, ::1]),
