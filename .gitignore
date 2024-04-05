@@ -165,3 +165,4 @@ sftp-config.json
 /example/brainbraille_3s_raw_data_decode/brainbraille_intermediate_3s_per_run_raw_data.bin
 example/brainbraille_3s_raw_data_decode/brainbraille_SVM_result_cache*
 .virtual_documents/
+src/brainbraille_decode/backup.py
