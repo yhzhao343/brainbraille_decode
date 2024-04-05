@@ -3,6 +3,10 @@ import subprocess
 import numpy as np
 from fastFMRI.file_helpers import write_file, load_file, delete_file_if_exists
 from functools import partial
+from .HTK import (
+    get_word_lattice_from_grammar,
+    parseLatticeString
+)
 
 letter_label=' abcdefghijklmnopqrstuvwxyz'
 
@@ -30,25 +34,25 @@ def txt_to_np_array(txt):
     return txt
 
 
-def get_one_gram_feat_vector(txt, normalize=False, int_dtype=np.int64, float_dtype=np.float64):
+def get_one_gram_feat_vector(txt, normalize=False, k=1, int_dtype=np.int64, float_dtype=np.float64):
     txt = txt_to_np_array(txt)
     vec = np.zeros(27, dtype=int_dtype)
     # do n-gram count with a default value to prevent proba = 0
     for i in range(vec.size):
         vec[i] += np.sum(txt == i)
     if normalize:
-        vec = counts_to_proba(vec, add_k_gen(0, float_dtype))
+        vec = counts_to_proba(vec, add_k_gen(k, float_dtype))
     return vec
 
 
-def get_two_gram_feat_vector(txt, normalize=False, int_dtype=np.int64, float_dtype=np.float64):
+def get_two_gram_feat_vector(txt, normalize=False, k=1, int_dtype=np.int64, float_dtype=np.float64):
     txt = txt_to_np_array(txt)
     vec = np.zeros((27, 27), dtype=int_dtype)
     for i, c_0 in enumerate(txt[:-1]):
         c_1 = txt[i + 1]
         vec[c_0][c_1] += 1
     if normalize:
-        vec = counts_to_proba(vec, add_k_gen(0, float_dtype))
+        vec = counts_to_proba(vec, add_k_gen(k, float_dtype))
     return vec
 
 
@@ -105,6 +109,45 @@ def get_srilm_ngram(content, n=2, SRILM_PATH=None, **kwargs):
     delete_file_if_exists(content_path)
     delete_file_if_exists(ngram_out_path)
     return ngram_content
+
+def viterbi_decode(
+    log_emission_proba, log_transition_proba, initial_log_proba=None
+):
+    num_t, num_state = log_emission_proba.shape
+    dtype = log_emission_proba.dtype
+    viterbi_trellis = np.zeros((num_t, num_state), dtype=dtype)
+    prev_table = np.zeros((num_t, num_state), dtype=np.int32)
+    hidden_state_i = np.zeros(num_t, dtype=np.int32)
+    if (initial_log_proba is None) or (len(initial_log_proba) != num_state):
+        initial_log_proba = np.zeros((num_state, 1), dtype=dtype)
+    if len(initial_log_proba.shape) == 1:
+        initial_log_proba = initial_log_proba[:, np.newaxis]
+    prev_trellis_val = initial_log_proba
+    for i in range(num_t):
+        temp = log_transition_proba + prev_trellis_val
+        prev_table[i, :] = np.argmax(temp, axis=0)
+        viterbi_trellis[i, :] = log_emission_proba[i] + temp[prev_table[i, :], np.arange(num_state)]
+        prev_trellis_val = viterbi_trellis[i, :][:, np.newaxis]
+    hidden_state_i[-1] = np.argmax(viterbi_trellis[-1, :])
+    for i in range(num_t - 2, -1, -1):
+        hidden_state_i[i] = prev_table[i + 1, hidden_state_i[i + 1]]
+    return hidden_state_i
+
+
+def forward_decode(emission_proba, transition_proba, initial_proba=None):
+    (num_t, num_state), dtype = emission_proba.shape, emission_proba.dtype
+    viterbi_trellis = np.zeros((num_t, num_state), dtype=dtype)
+    if (initial_proba is None) or (len(initial_proba) != num_state):
+        initial_proba = np.zeros((num_state, 1), dtype=dtype)
+    if len(initial_proba.shape) == 1:
+        initial_proba = initial_proba[:, np.newaxis]
+    prev_trellis_val = initial_proba
+    for i in range(num_t):
+        temp = emission_proba[i] * np.sum(transition_proba * prev_trellis_val, axis=0)
+        viterbi_trellis[i, :] = temp / temp.sum()
+        prev_trellis_val = viterbi_trellis[i, :][:, np.newaxis]
+    return np.argmax(viterbi_trellis, axis=-1)
+
 
 mackenzie_soukoreff_corpus = \
 '''my watch fell in the water
@@ -609,3 +652,207 @@ everyone wants to win the lottery
 the picket line gives me the chills
 
 '''
+
+def grammar_info_gen(letter_labels, EVENT_LEN_S):
+    if EVENT_LEN_S not in (3, 1.5):
+        EVENT_LEN_S = 3
+
+    if EVENT_LEN_S == 1.5:
+        word_separation_tok = "  "
+        sent_separation_tok = "   "
+        stimulus_text_content = (
+            (
+                "\n".join(
+                    [
+                        "".join(p).replace(sent_separation_tok, "\n")[1:]
+                        for p in letter_labels
+                    ]
+                )
+            )
+            .replace("\n\n", "\n")
+            .replace(word_separation_tok, " ")
+        )
+
+        stimulus_letters = np.unique([l for l in stimulus_text_content])
+        letter_conversion_dict = {l: l for l in stimulus_letters}
+        letter_conversion_dict["\n"] = "_space_ _space_ _space_"
+        letter_conversion_dict[" "] = "_space_ _space_"
+
+        letter_space_conversion_dict = {l: l for l in stimulus_letters}
+        letter_space_conversion_dict["\n"] = "   "
+        letter_space_conversion_dict[" "]  = "  "
+    else:
+        word_separation_tok = " "
+        sent_separation_tok = "  "
+        stimulus_text_content = (
+            "\n".join(
+                ["".join(p).replace(sent_separation_tok, "\n")[1:] for p in letter_labels]
+            )
+        ).replace("\n\n", "\n")
+
+        stimulus_letters = np.unique([l for l in stimulus_text_content])
+        letter_conversion_dict = {l: l for l in stimulus_letters}
+        letter_conversion_dict["\n"] = "_space_ _space_"
+        letter_conversion_dict[" "] = "_space_"
+
+        letter_space_conversion_dict = {l: l for l in stimulus_letters}
+        letter_space_conversion_dict["\n"] = "  "
+        letter_space_conversion_dict[" "]  = " "
+
+    stimulus_text_letter = "".join(
+        [letter_space_conversion_dict[l] for l in stimulus_text_content]
+    )
+
+    space_tok = "_space_"
+    unique_stimulus_words = np.unique(stimulus_text_content.split()).tolist()
+    mackenzie_soukoreff_content = mackenzie_soukoreff_corpus.lower()
+    unique_mackenzie_soukoreff_words = np.unique(
+        mackenzie_soukoreff_content.split()
+    ).tolist()
+    unique_stimulus_words += [" "]
+    unique_mackenzie_soukoreff_words += [" "]
+
+    mackenzie_soukoreff_text_letter = "".join(
+        [letter_space_conversion_dict[l] for l in mackenzie_soukoreff_content]
+    )
+
+    SENT_START_TOK = "SENT-START"
+    SENT_END_TOK = "SENT-END"
+    additional_key_val = {
+        "SENT-END": [" "],
+        "SENT-START": [" "],
+        "_space_": [" "],
+        "!NULL": [],
+    }
+    unique_stimulus_word_dictionary = {
+        w: [l for l in w if l != " "] for w in unique_stimulus_words
+    }
+    unique_mackenzie_soukoreff_word_dictionary = {
+        w: [l for l in w if l != " "] for w in unique_mackenzie_soukoreff_words
+    }
+    unique_stimulus_word_dictionary.update(additional_key_val)
+    unique_mackenzie_soukoreff_word_dictionary.update(additional_key_val)
+
+    # HTK grammar expression rules
+    # $var = expression ; denotes defining sub expression
+    # |                   denotes alternatives
+    # [ ]                 encloses options
+    # { }                 denotes zero or more repetitions
+    # < >                 denotes one or more repetitions
+    # << >>               denotes context-sensitive loop
+
+    sentences_formed_by_stimulus_words_seperated_by_space_dict_grammar = f'$word = {" | ".join([k for k in unique_stimulus_words if k not in [SENT_START_TOK, SENT_END_TOK, " "]])} ;\n(<{SENT_START_TOK} {{ $word _space_ }} $word {SENT_END_TOK}> {{_space_}} )'
+    sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_dict_grammar = f'$word = {" | ".join([k for k in unique_mackenzie_soukoreff_words if k not in [SENT_START_TOK, SENT_END_TOK, " "]])} ;\n(<{SENT_START_TOK} {{ $word _space_ }} $word {SENT_END_TOK}> {{_space_}} )'
+
+    sentences_formed_by_stimulus_words_seperated_by_space_lattice_string = (
+        get_word_lattice_from_grammar(
+            sentences_formed_by_stimulus_words_seperated_by_space_dict_grammar
+        )
+    )
+    sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_lattice_string = (
+        get_word_lattice_from_grammar(
+            sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_dict_grammar
+        )
+    )
+    stimulus_words_node_symbols, stimulus_words_link_start_end = parseLatticeString(
+        sentences_formed_by_stimulus_words_seperated_by_space_lattice_string
+    )
+    (
+        mackenzie_soukoreff_words_node_symbols,
+        mackenzie_soukoreff_words_link_start_end,
+    ) = parseLatticeString(
+        sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_lattice_string
+    )
+
+    any_word_to_any_word_in_stimulus_dict_grammar = f'$word = {" | ".join([k for k in unique_stimulus_words if k not in [SENT_START_TOK, SENT_END_TOK, " "]])} | _space_ ;\n(<$word>)'
+    any_word_to_any_word_in_mackenzie_soukoreff_dict_grammar = f'$word = {" | ".join([k for k in unique_mackenzie_soukoreff_words if k not in [SENT_START_TOK, SENT_END_TOK, " "]])} | _space_ ;\n(<$word>)'
+
+    any_word_to_any_word_in_stimulus_lattice_string = get_word_lattice_from_grammar(
+        any_word_to_any_word_in_stimulus_dict_grammar
+    )
+    any_word_to_any_word_in_mackenzie_soukoreff_lattice_string = (
+        get_word_lattice_from_grammar(
+            any_word_to_any_word_in_mackenzie_soukoreff_dict_grammar
+        )
+    )
+    (
+        aw2aw_stimulus_words_node_symbols,
+        aw2aw_stimulus_words_link_start_end,
+    ) = parseLatticeString(any_word_to_any_word_in_stimulus_lattice_string)
+    (
+        aw2aw_mackenzie_soukoreff_words_node_symbols,
+        aw2aw_mackenzie_soukoreff_words_link_start_end,
+    ) = parseLatticeString(any_word_to_any_word_in_mackenzie_soukoreff_lattice_string)
+
+    unique_stimulus_word_dictionary_string = "\n".join(
+        [
+            f'{word} {" ".join(spelling) if spelling != [" "] else "_space_"}'
+            for word, spelling in unique_stimulus_word_dictionary.items()
+            if (word != " ") and (word != "!NULL")
+        ]
+    )
+    unique_mackenzie_soukoreff_word_dictionary_string = "\n".join(
+        [
+            f'{word} {" ".join(spelling) if spelling != [" "] else "_space_"}'
+            for word, spelling in unique_mackenzie_soukoreff_word_dictionary.items()
+            if (word != " ") and (word != "!NULL")
+        ]
+    )
+
+    mackenzie_soukoreff_content_letters = '_space_ ' + ' '.join(mackenzie_soukoreff_content).replace('  ', ' _space_').replace('\n', '_space_ _space_') + ' _space_ _space_'
+
+    mackenzie_soukoreff_letter_one_gram_count = get_one_gram_feat_vector(mackenzie_soukoreff_text_letter)
+    mackenzie_soukoreff_letter_bigram_count = get_two_gram_feat_vector(mackenzie_soukoreff_text_letter)
+    stimulus_letter_one_gram_count = get_one_gram_feat_vector(stimulus_text_letter)
+    stimulus_letter_bigram_count = get_two_gram_feat_vector(stimulus_text_letter)
+
+    return {
+        "word_separation_tok": word_separation_tok,
+        "sent_separation_tok": sent_separation_tok,
+        "stimulus_text_content": stimulus_text_content,
+        "stimulus_letters": stimulus_letters,
+        "letter_conversion_dict": letter_conversion_dict,
+        "letter_conversion_dict": letter_conversion_dict,
+        "letter_conversion_dict": letter_conversion_dict,
+        "letter_space_conversion_dict": letter_space_conversion_dict,
+        "letter_space_conversion_dict": letter_space_conversion_dict,
+        "letter_space_conversion_dict": letter_space_conversion_dict,
+        "stimulus_text_letter": stimulus_text_letter,
+        "space_tok": space_tok,
+        "unique_stimulus_words": unique_stimulus_words,
+        "mackenzie_soukoreff_content": mackenzie_soukoreff_content,
+        "unique_mackenzie_soukoreff_words": unique_mackenzie_soukoreff_words,
+        "unique_stimulus_words": unique_stimulus_words,
+        "unique_mackenzie_soukoreff_words": unique_mackenzie_soukoreff_words,
+        "mackenzie_soukoreff_text_letter": mackenzie_soukoreff_text_letter,
+        "SENT_START_TOK": SENT_START_TOK,
+        "SENT_END_TOK": SENT_END_TOK,
+        "additional_key_val": additional_key_val,
+        "unique_stimulus_word_dictionary": unique_stimulus_word_dictionary,
+        "unique_mackenzie_soukoreff_word_dictionary": unique_mackenzie_soukoreff_word_dictionary,
+        "unique_stimulus_word_dictionary": unique_stimulus_word_dictionary,
+        "unique_mackenzie_soukoreff_word_dictionary": unique_mackenzie_soukoreff_word_dictionary,
+        "sentences_formed_by_stimulus_words_seperated_by_space_dict_grammar": sentences_formed_by_stimulus_words_seperated_by_space_dict_grammar,
+        "sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_dict_grammar": sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_dict_grammar,
+        "sentences_formed_by_stimulus_words_seperated_by_space_lattice_string": sentences_formed_by_stimulus_words_seperated_by_space_lattice_string,
+        "sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_lattice_string": sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_lattice_string,
+        "stimulus_words_node_symbols": stimulus_words_node_symbols,
+        "stimulus_words_link_start_end": stimulus_words_link_start_end,
+        "mackenzie_soukoreff_words_node_symbols": mackenzie_soukoreff_words_node_symbols,
+        "mackenzie_soukoreff_words_link_start_end": mackenzie_soukoreff_words_link_start_end,
+        "any_word_to_any_word_in_stimulus_dict_grammar": any_word_to_any_word_in_stimulus_dict_grammar,
+        "any_word_to_any_word_in_mackenzie_soukoreff_dict_grammar": any_word_to_any_word_in_mackenzie_soukoreff_dict_grammar,
+        "any_word_to_any_word_in_stimulus_lattice_string": any_word_to_any_word_in_stimulus_lattice_string,
+        "any_word_to_any_word_in_mackenzie_soukoreff_lattice_string": any_word_to_any_word_in_mackenzie_soukoreff_lattice_string,
+        "aw2aw_stimulus_words_node_symbols": aw2aw_stimulus_words_node_symbols,
+        "aw2aw_stimulus_words_link_start_end": aw2aw_stimulus_words_link_start_end,
+        "aw2aw_mackenzie_soukoreff_words_node_symbols": aw2aw_mackenzie_soukoreff_words_node_symbols,
+        "aw2aw_mackenzie_soukoreff_words_link_start_end": aw2aw_mackenzie_soukoreff_words_link_start_end,
+        "unique_stimulus_word_dictionary_string": unique_stimulus_word_dictionary_string,
+        "unique_mackenzie_soukoreff_word_dictionary_string": unique_mackenzie_soukoreff_word_dictionary_string,
+        "mackenzie_soukoreff_content_letters": mackenzie_soukoreff_content_letters,
+        "mackenzie_soukoreff_letter_one_gram_count": mackenzie_soukoreff_letter_one_gram_count,
+        "mackenzie_soukoreff_letter_bigram_count": mackenzie_soukoreff_letter_bigram_count,
+        "stimulus_letter_one_gram_count": stimulus_letter_one_gram_count,
+        "stimulus_letter_bigram_count": stimulus_letter_bigram_count,
+    }

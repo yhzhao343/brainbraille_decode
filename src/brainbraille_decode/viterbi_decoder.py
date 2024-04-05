@@ -6,7 +6,7 @@ from sklearn.model_selection import KFold
 import copy
 from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin
 from lipo import GlobalOptimizer
-from .lm import add_k_gen, counts_to_proba
+from .lm import add_k_gen, counts_to_proba, forward_decode, viterbi_decode
 from .preprocessing import ZNormalizeByGroup
 
 
@@ -664,6 +664,7 @@ class LetterProbaToLetterDecode(BaseEstimator, ClassifierMixin):
         LETTERS_TO_DOT,
         region_order,
         bigram_dict=None,
+        X_is_emission=False,
         unigram_counts=None,
         unigram_smoothing_k=0,
         bigram_counts=None,
@@ -695,6 +696,7 @@ class LetterProbaToLetterDecode(BaseEstimator, ClassifierMixin):
         if unigram_counts is not None:
             self.add_unigram_counts_matrix(unigram_counts, self.unigram_smoothing_k)
         self.add_LETTERS_TO_DOT(LETTERS_TO_DOT)
+        self.X_is_emission = X_is_emission
         if bigram_counts is not None:
             self.add_bigram_counts_matrix(bigram_counts, self.bigram_smoothing_k)
         elif bigram_dict is not None:
@@ -707,15 +709,17 @@ class LetterProbaToLetterDecode(BaseEstimator, ClassifierMixin):
         self.insertion_penalty_higher = insertion_penalty_higher
         self.CV_tune_insertion_penalty = CV_tune_insertion_penalty
         self.naive_prob_letter_label = None
-        self.bigram_weighted_letter_label = None
+        self.letter_bigram_forward_decode_letter_label = None
         self.letter_viterbi_decode_letter_label = None
         self.skip_naive = skip_naive
         self.skip_letter_viterbi = skip_letter_viterbi
         self.skip_grammar_viterbi = skip_grammar_viterbi
         self.random_state = random_state
         self.n_calls = n_calls
-        self.X = None
+        # self.X = None
         self.y = None
+        self.naive_letter_prob = None
+        self.naive_letter_emission = None
 
     def add_LETTERS_TO_DOT(self, LETTERS_TO_DOT):
         self.LETTERS_TO_DOT = LETTERS_TO_DOT
@@ -811,7 +815,13 @@ class LetterProbaToLetterDecode(BaseEstimator, ClassifierMixin):
         return decode_acc_with_ins_pen
 
     def fit(self, X, y):
-        self.X = X
+        if self.X_is_emission:
+            self.naive_letter_prob = [x_i * self.unigram_prior for x_i in X]
+            self.naive_letter_emission = X
+        else:
+            self.naive_letter_prob = X
+            self.naive_letter_emission = [x_i / self.unigram_prior for x_i in X]
+        # self.X = X
         self.y = y
         if self.CV_tune_insertion_penalty:
             self.re_tune()
@@ -869,7 +879,7 @@ class LetterProbaToLetterDecode(BaseEstimator, ClassifierMixin):
 
         if CV_tune_insertion_penalty:
             objective_function = self.decode_acc_with_ins_pen_gen(
-                self.X,
+                self.naive_letter_emission,
                 self.y,
                 decode_grammar_viterbi,
                 letters,
@@ -894,29 +904,48 @@ class LetterProbaToLetterDecode(BaseEstimator, ClassifierMixin):
         ]
         return naive_prob_letter_label
 
-    @staticmethod
-    def decode_letter_viterbi(
-        naive_letter_prob, letters, bigram_matrix, bigram_log_matrix
-    ):
-        bigram_weighted_prob = [
-            add_bigram_probabilities(run_i, bigram_matrix, np.empty_like(run_i))
-            for run_i in naive_letter_prob
-        ]
-        bigram_weighted_ind = [
-            np.argmax(run_i, axis=-1) for run_i in bigram_weighted_prob
-        ]
-        bigram_weighted_letter_label = [letters[run_i] for run_i in bigram_weighted_ind]
-        # latest_results = self.bigram_weighted_letter_label
-        letter_viterbi_decode_letter_label = [
-            letter_level_bigram_viterbi_decode(run_i, bigram_log_matrix, letters)
-            for run_i in naive_letter_prob
-        ]
+    # @staticmethod
+    # def decode_letter_viterbi(
+    #     naive_letter_prob, letters, bigram_matrix, bigram_log_matrix
+    # ):
+    #     bigram_weighted_prob = [
+    #         add_bigram_probabilities(run_i, bigram_matrix, np.empty_like(run_i))
+    #         for run_i in naive_letter_prob
+    #     ]
+    #     bigram_weighted_ind = [
+    #         np.argmax(run_i, axis=-1) for run_i in bigram_weighted_prob
+    #     ]
+    #     letter_bigram_forward_decode_letter_label = [letters[run_i] for run_i in bigram_weighted_ind]
+    #     # latest_results = self.letter_bigram_forward_decode_letter_label
+    #     letter_viterbi_decode_letter_label = [
+    #         letter_level_bigram_viterbi_decode(run_i, bigram_log_matrix, letters)
+    #         for run_i in naive_letter_prob
+    #     ]
 
-        return (
-            bigram_weighted_prob,
-            bigram_weighted_letter_label,
-            letter_viterbi_decode_letter_label,
-        )
+    #     return (
+    #         bigram_weighted_prob,
+    #         letter_bigram_forward_decode_letter_label,
+    #         letter_viterbi_decode_letter_label,
+    #     )
+
+    @staticmethod
+    def decode_letter_viterbi(emission_prob, transition_prob, letters, initial_prob=None, initial_prob_smoothing=0.001):
+        initial_proba = np.zeros((27, 1))
+        initial_proba[0] = 1
+        if initial_prob is not None:
+            initial_prob = initial_prob + initial_prob_smoothing
+            initial_prob = initial_prob / np.sum(initial_prob)
+        forward_decode_res = [forward_decode(x_i, transition_prob, initial_prob) for x_i in emission_prob]
+        forward_decode_letter_label = [[letters[i] for i in run] for run in forward_decode_res]
+        log_emission_prob = np.log10(np.array(emission_prob))
+        log_trans_prob    = np.log10(np.array(transition_prob))
+        if initial_prob is not None:
+            log_initial_prob = np.log10(np.array(log_initial_prob))
+        else:
+            log_initial_prob = None
+        viterbi_decode_res = [viterbi_decode(x_i, log_trans_prob, log_initial_prob) for x_i in log_emission_prob]
+        viterbi_decode_letter_label = [[letters[i] for i in run] for run in viterbi_decode_res]
+        return forward_decode_letter_label, viterbi_decode_letter_label
 
     @staticmethod
     def decode_grammar_viterbi(
@@ -952,12 +981,15 @@ class LetterProbaToLetterDecode(BaseEstimator, ClassifierMixin):
         words_dictionary=None,
         insertion_penalty=None,
     ):
-        if X is None:
-            if self.naive_letter_prob is not None:
-                X = self.naive_letter_prob
-            else:
-                raise Exception("No X input")
-        self.naive_letter_prob = X
+        if (X is None) and (self.naive_letter_prob is None):
+            raise Exception("No X input")
+
+        if self.X_is_emission:
+            self.naive_letter_prob = [x_i * self.unigram_prior for x_i in X]
+            self.naive_letter_emission = X
+        else:
+            self.naive_letter_prob = X
+            self.naive_letter_emission = [x_i / self.unigram_prior for x_i in X]
         if skip_naive is None:
             skip_naive = self.skip_naive
 
@@ -974,17 +1006,15 @@ class LetterProbaToLetterDecode(BaseEstimator, ClassifierMixin):
         if (
             (self.bigram_matrix is not None)
             and (not skip_letter_viterbi)
-            and (self.naive_letter_prob is not None)
+            and (self.naive_letter_emission is not None)
         ):
             (
-                self.bigram_weighted_prob,
-                self.bigram_weighted_letter_label,
+                self.letter_bigram_forward_decode_letter_label,
                 self.letter_viterbi_decode_letter_label,
             ) = self.decode_letter_viterbi(
-                self.naive_letter_prob,
-                self.letters,
+                self.naive_letter_emission,
                 self.bigram_matrix,
-                self.bigram_log_matrix,
+                self.letters,
             )
             latest_results = self.letter_viterbi_decode_letter_label
 

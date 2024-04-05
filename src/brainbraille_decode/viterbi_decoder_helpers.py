@@ -5,7 +5,6 @@ import numba as nb
 from .preprocessing import flatten_fold, flatten_feature
 from .metrics import accuracy_score
 
-
 def get_run_start_end_index(X):
     X_each_run_len = [len(x_i) for x_i in X]
     X_each_run_start_end = [
