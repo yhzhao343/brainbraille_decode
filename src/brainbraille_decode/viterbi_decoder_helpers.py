@@ -5,6 +5,7 @@ import numba as nb
 from .preprocessing import flatten_fold, flatten_feature
 from .metrics import accuracy_score
 
+
 def get_run_start_end_index(X):
     X_each_run_len = [len(x_i) for x_i in X]
     X_each_run_start_end = [
@@ -52,11 +53,14 @@ def letter_label_to_transition_label(y, LETTERS_TO_DOT, region_order):
     ]
     return transition_label
 
+
 def letter_label_to_state_label(y, LETTERS_TO_DOT, region_order):
-    dot_label = np.array([
-        [[LETTERS_TO_DOT[l_i][region] for region in region_order] for l_i in run_i]
-        for run_i in y
-    ])
+    dot_label = np.array(
+        [
+            [[LETTERS_TO_DOT[l_i][region] for region in region_order] for l_i in run_i]
+            for run_i in y
+        ]
+    )
     return dot_label
 
 
@@ -513,10 +517,10 @@ def param_result_format(param_dict):
     return "".join([f" {key}:{param_dict[key]:8.3f}" for key in sorted_key_list])
 
 
-def tune_clf_results_pretty_print(tune_clf_results, region_order):
+def tune_clf_results_pretty_print(tune_clf_results, region_order, score_name="acc"):
     result_str = "\n".join(
         [
-            f"region:{r:>4} cost:{res_i[1]:7.4f} -{param_result_format(res_i[0])}"
+            f"region:{r:>4} {score_name}:{res_i[1]:7.4f} -{param_result_format(res_i[0])}"
             for res_i, r in zip(tune_clf_results, region_order)
         ]
     )

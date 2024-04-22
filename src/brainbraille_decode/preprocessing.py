@@ -21,6 +21,10 @@ def flatten_feature(arr):
 
 class ButterworthBandpassFilter(BaseEstimator, TransformerMixin):
     def __init__(self, lowcut, highcut, fs, order=4, axis=0):
+        self.lowcut = lowcut
+        self.highcut = highcut
+        self.fs = fs
+        self.order = order
         self.sos = butter(
             order, [lowcut, highcut], analog=False, btype="band", output="sos", fs=fs
         )
