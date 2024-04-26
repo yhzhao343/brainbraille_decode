@@ -4,6 +4,10 @@ import sys
 import numba as nb
 from .preprocessing import flatten_fold, flatten_feature
 from .metrics import accuracy_score
+from functools import partial
+from joblib import Parallel, delayed
+from lipo import GlobalOptimizer
+from copy import deepcopy
 
 
 def get_run_start_end_index(X):
@@ -514,7 +518,14 @@ def clf_pred_proba(clf, X):
 
 def param_result_format(param_dict):
     sorted_key_list = sorted(param_dict.keys())
-    return "".join([f" {key}:{param_dict[key]:8.3f}" for key in sorted_key_list])
+    return "".join(
+        [
+            f" {key}:{param_dict[key]:8.3f}"
+            if isinstance(param_dict[key], (int, float))
+            else f" {key}:{param_dict[key]}"
+            for key in sorted_key_list
+        ]
+    )
 
 
 def tune_clf_results_pretty_print(tune_clf_results, region_order, score_name="acc"):
@@ -579,3 +590,264 @@ def pp_array(arr, delimiter="\t"):
             formatter={"float_kind": lambda x: f"{x:6.4f}"},
         )[1:-1]
     )
+
+
+def extract_data_for_hp_tuning(
+    train_train_data_i, train_valid_data_i, roi_extract_and_filter_i
+):
+    train_train_X = roi_extract_and_filter_i.fit_transform(train_train_data_i)
+    train_valid_X = roi_extract_and_filter_i.transform(train_valid_data_i)
+    return train_train_X, train_valid_X
+
+
+def lipo_param_search(
+    objective_function,
+    param_grid,
+    param_category_keys,
+    log_args_keys,
+    flexible_bounds,
+    optimum_val_max=1.0,
+    maximize=True,
+    flexible_bound_threshold=0.1,
+    random_state=42,
+    n_calls=128,
+):
+    all_keys_set = set(param_grid.keys())
+    category_keys_set = set(param_category_keys)
+    range_keys_set = all_keys_set - category_keys_set
+    lower_bounds = {}
+    upper_bounds = {}
+    categories = {}
+    for key in range_keys_set:
+        lower_bounds[key] = param_grid[key][0]
+        upper_bounds[key] = param_grid[key][1]
+    for key in category_keys_set:
+        categories[key] = param_grid[key]
+
+    optimizer = GlobalOptimizer(
+        function=objective_function,
+        lower_bounds=lower_bounds,
+        upper_bounds=upper_bounds,
+        categories=categories,
+        log_args=log_args_keys,
+        flexible_bounds=flexible_bounds,
+        maximize=maximize,
+        flexible_bound_threshold=flexible_bound_threshold,
+        random_state=random_state,
+    )
+
+    for _ in range(n_calls):
+        candidate = optimizer.get_candidate()
+        candidate.set(optimizer.function(**candidate.x))
+        if optimum_val_max is not None:
+            if np.isclose(optimizer.optimum[1], 1.0):
+                break
+
+    return optimizer.optimum, optimizer.running_optimum
+
+
+def clf_predict_proba(clf, X):
+    return clf.predict_proba(X)
+
+
+def clf_predict(clf, X):
+    return clf.predict(X)
+
+
+def clf_score_gen(clf, cv_train_X, cv_train_y, cv_test_X, cv_test_y, n_jobs=-1):
+    def clf_score(**kwargs):
+        scores = np.array(
+            Parallel(n_jobs=n_jobs)(
+                delayed(clf_fit_pred_score)(
+                    clf.set_params(**kwargs),
+                    train_X_i,
+                    train_y_i,
+                    test_X_i,
+                    test_y_i,
+                )
+                for train_X_i, train_y_i, test_X_i, test_y_i in zip(
+                    cv_train_X, cv_train_y, cv_test_X, cv_test_y
+                )
+            )
+        )
+
+        avg_acc = np.mean(scores)
+        return avg_acc
+
+    return clf_score
+
+
+# def tune_lr_for_r()
+
+
+def tune_clf(
+    train_train_extracted_flatten_Xs,
+    train_train_state_flatten_labels,
+    train_valid_extracted_flatten_Xs,
+    train_valid_state_flatten_labels,
+    clf,
+    param_grid,
+    param_category_keys,
+    log_args_keys,
+    flexible_bounds,
+    optimum_val_max=1.0,
+    maximize=True,
+    flexible_bound_threshold=0.1,
+    random_state=42,
+    n_calls=128,
+):
+    # train_train_state_flatten_labels = [[l_i_j[r_i] for l_i_j in l_i] for l_i in train_train_state_flatten_labels]
+    # train_valid_state_flatten_labels = [[l_i_j[r_i] for l_i_j in l_i] for l_i in train_valid_state_flatten_labels]
+    func_to_max = clf_score_gen(
+        clf,
+        train_train_extracted_flatten_Xs,
+        train_train_state_flatten_labels,
+        train_valid_extracted_flatten_Xs,
+        train_valid_state_flatten_labels,
+    )
+    tune_clf_results, tune_clf_history = lipo_param_search(
+        func_to_max,
+        param_grid,
+        param_category_keys,
+        log_args_keys,
+        flexible_bounds,
+        optimum_val_max=optimum_val_max,
+        maximize=maximize,
+        flexible_bound_threshold=flexible_bound_threshold,
+        random_state=random_state,
+        n_calls=n_calls,
+    )
+    return clf, tune_clf_results, tune_clf_history
+
+
+def get_slices_and_extract_data(
+    selected_ind,
+    fold_i,
+    per_run_data,
+    subs,
+    train_i,
+    test_i,
+    train_vali_spliter,
+    roi_extract_and_filter,
+    Z_NORM=True,
+    verbose=True,
+):
+    train_per_run_data_index = np.array([selected_ind[i] for i in train_i])
+    test_per_run_data_index = np.array([selected_ind[i] for i in test_i])
+    if verbose:
+        print(f"fold_i: {fold_i}")
+        print(f"train_runs:{np.array2string(train_per_run_data_index, 120)}")
+        print(f"test_runs:{np.array2string(test_per_run_data_index, 120)}")
+
+    train_data_i = [per_run_data[i] for i in train_per_run_data_index]
+    train_letter_label_i = [d_i["letter_label"] for d_i in train_data_i]
+    train_state_label_i = [d_i["state_label"] for d_i in train_data_i]
+
+    test_data_i = [per_run_data[i] for i in test_per_run_data_index]
+    test_letter_label_i = [d_i["letter_label"] for d_i in test_data_i]
+    test_state_label_i = [d_i["state_label"] for d_i in test_data_i]
+
+    train_sub_i = [subs[i] for i in train_per_run_data_index]
+    test_sub_i = [subs[i] for i in test_per_run_data_index]
+    train_vali_split = partial(train_vali_spliter.split, X=train_i)
+    train_train_i_list, train_valid_i_list = zip(*train_vali_split())
+
+    train_train_extracted_Xs, train_valid_extracted_Xs = zip(
+        *Parallel(n_jobs=-1)(
+            delayed(extract_data_for_hp_tuning)(
+                [train_data_i[i] for i in train_train_i],
+                [train_data_i[i] for i in train_valid_i],
+                (
+                    deepcopy(roi_extract_and_filter).set_params(
+                        z_norm__train_group=[train_sub_i[i] for i in train_train_i],
+                        z_norm__test_group=[train_sub_i[i] for i in train_valid_i],
+                    )
+                    if Z_NORM
+                    else deepcopy(roi_extract_and_filter)
+                ),
+            )
+            for train_train_i, train_valid_i in train_vali_split()
+        )
+    )
+
+    train_train_extracted_flatten_Xs = [
+        x_i.reshape((np.prod(x_i.shape[:2]), np.prod(x_i.shape[2:])))
+        for x_i in train_train_extracted_Xs
+    ]
+    train_valid_extracted_flatten_Xs = [
+        x_i.reshape((np.prod(x_i.shape[:2]), np.prod(x_i.shape[2:])))
+        for x_i in train_valid_extracted_Xs
+    ]
+
+    train_train_letter_labels = [
+        [train_letter_label_i[i] for i in train_train_i]
+        for train_train_i in train_train_i_list
+    ]
+    train_valid_letter_labels = [
+        [train_letter_label_i[i] for i in train_valid_i]
+        for train_valid_i in train_valid_i_list
+    ]
+    train_train_state_labels = [
+        [train_state_label_i[i] for i in train_train_i]
+        for train_train_i in train_train_i_list
+    ]
+    train_valid_state_labels = [
+        [train_state_label_i[i] for i in train_valid_i]
+        for train_valid_i in train_valid_i_list
+    ]
+
+    train_train_letter_flatten_labels = [
+        [j for i in split_i for j in i] for split_i in train_train_letter_labels
+    ]
+    train_valid_letter_flatten_labels = [
+        [j for i in split_i for j in i] for split_i in train_valid_letter_labels
+    ]
+    train_train_state_flatten_labels = [
+        [j for i in split_i for j in i] for split_i in train_train_state_labels
+    ]
+    train_valid_state_flatten_labels = [
+        [j for i in split_i for j in i] for split_i in train_valid_state_labels
+    ]
+
+    train_letter_flatten_label_i = [j for run_i in train_letter_label_i for j in run_i]
+    test_letter_flatten_label_i = [j for run_i in test_letter_label_i for j in run_i]
+    train_state_flatten_label_i = [j for run_i in train_state_label_i for j in run_i]
+    test_state_flatten_label_i = [j for run_i in test_state_label_i for j in run_i]
+
+    return (
+        test_letter_label_i,
+        test_state_label_i,
+        train_train_extracted_flatten_Xs,
+        train_train_state_flatten_labels,
+        train_valid_extracted_flatten_Xs,
+        train_valid_state_flatten_labels,
+        test_sub_i,
+        train_sub_i,
+        train_state_flatten_label_i,
+        train_data_i,
+        test_data_i,
+        train_train_i_list,
+        train_valid_i_list,
+    )
+
+def state_prob_to_letter_prob(predict_state_per_run, LETTERS_TO_DOT_array):
+    predict_naive_letter_prob_per_run = np.array(
+        [
+            [
+                [
+                    (np.prod(d_i[l_mask]) * np.prod(1 - d_i[~l_mask]))
+                    for l_mask in LETTERS_TO_DOT_array
+                ]
+                for d_i in run_i
+            ]
+            for run_i in predict_state_per_run
+        ]
+    )
+
+    predict_naive_letter_prob_marg_per_run = np.array(
+        [run_i / run_i.sum(axis=1)[:, np.newaxis] for run_i in predict_naive_letter_prob_per_run]
+    )
+    predict_naive_letter_prob_letter_index_per_run = [np.argmax(run_i, axis=1) for run_i in predict_naive_letter_prob_marg_per_run]
+    predict_naive_letter_prob_letter_per_run = [[letter_label[l_i] for l_i in run_i] for run_i in predict_naive_letter_prob_letter_index_per_run]
+
+    return predict_naive_letter_prob_marg_per_run, predict_naive_letter_prob_letter_per_run
