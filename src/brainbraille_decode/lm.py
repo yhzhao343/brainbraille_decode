@@ -3,23 +3,30 @@ import subprocess
 import numpy as np
 from fastFMRI.file_helpers import write_file, load_file, delete_file_if_exists
 from functools import partial
-from .HTK import (
-    get_word_lattice_from_grammar,
-    parseLatticeString
-)
+from .HTK import get_word_lattice_from_grammar, parseLatticeString
 
-letter_label=' abcdefghijklmnopqrstuvwxyz'
+letter_label = " abcdefghijklmnopqrstuvwxyz"
+
+
+def add_k_smoothing(counts, k=1):
+    counts = np.array(counts)
+    counts_plus_k = counts + k
+    return counts_plus_k / counts_plus_k.sum()
+
 
 def add_k(k, counts, dtype=np.float64):
     return np.array(counts, dtype=dtype) + k
 
+
 def add_k_gen(k, dtype=np.float64):
     return partial(add_k, k=k, dtype=dtype)
+
 
 def counts_to_proba(counts, smoothing=add_k_gen(1, np.float64)):
     new_counts = smoothing(counts=counts)
     proba = (new_counts.T / new_counts.sum(axis=-1)).T
     return proba
+
 
 def txt_to_np_array(txt):
     if isinstance(txt, str):
@@ -34,7 +41,9 @@ def txt_to_np_array(txt):
     return txt
 
 
-def get_one_gram_feat_vector(txt, normalize=False, k=1, int_dtype=np.int64, float_dtype=np.float64):
+def get_one_gram_feat_vector(
+    txt, normalize=False, k=1, int_dtype=np.int64, float_dtype=np.float64
+):
     txt = txt_to_np_array(txt)
     vec = np.zeros(27, dtype=int_dtype)
     # do n-gram count with a default value to prevent proba = 0
@@ -45,7 +54,9 @@ def get_one_gram_feat_vector(txt, normalize=False, k=1, int_dtype=np.int64, floa
     return vec
 
 
-def get_two_gram_feat_vector(txt, normalize=False, k=1, int_dtype=np.int64, float_dtype=np.float64):
+def get_two_gram_feat_vector(
+    txt, normalize=False, k=1, int_dtype=np.int64, float_dtype=np.float64
+):
     txt = txt_to_np_array(txt)
     vec = np.zeros((27, 27), dtype=int_dtype)
     for i, c_0 in enumerate(txt[:-1]):
@@ -110,9 +121,8 @@ def get_srilm_ngram(content, n=2, SRILM_PATH=None, **kwargs):
     delete_file_if_exists(ngram_out_path)
     return ngram_content
 
-def viterbi_decode(
-    log_emission_proba, log_transition_proba, initial_log_proba=None
-):
+
+def viterbi_decode(log_emission_proba, log_transition_proba, initial_log_proba=None):
     num_t, num_state = log_emission_proba.shape
     dtype = log_emission_proba.dtype
     viterbi_trellis = np.zeros((num_t, num_state), dtype=dtype)
@@ -126,7 +136,9 @@ def viterbi_decode(
     for i in range(num_t):
         temp = log_transition_proba + prev_trellis_val
         prev_table[i, :] = np.argmax(temp, axis=0)
-        viterbi_trellis[i, :] = log_emission_proba[i] + temp[prev_table[i, :], np.arange(num_state)]
+        viterbi_trellis[i, :] = (
+            log_emission_proba[i] + temp[prev_table[i, :], np.arange(num_state)]
+        )
         prev_trellis_val = viterbi_trellis[i, :][:, np.newaxis]
     hidden_state_i[-1] = np.argmax(viterbi_trellis[-1, :])
     for i in range(num_t - 2, -1, -1):
@@ -149,8 +161,61 @@ def forward_decode(emission_proba, transition_proba, initial_proba=None):
     return np.argmax(viterbi_trellis, axis=-1)
 
 
-mackenzie_soukoreff_corpus = \
-'''my watch fell in the water
+def forward_decode_from_letter_proba(
+    uni_count,
+    uni_k,
+    bi_count,
+    bi_k,
+    initial_proba,
+    ip_k,
+    letter_proba_per_run,
+    out_label,
+):
+    uni_proba = add_k_smoothing(uni_count, uni_k)
+    bi_proba = add_k_smoothing(bi_count, bi_k)
+    initial_proba = add_k_smoothing(initial_proba, ip_k)
+    pseudo_emission_proba_per_run = [
+        run_i / uni_proba[np.newaxis, :] for run_i in letter_proba_per_run
+    ]
+    forward_decode_letter_index_per_run = [
+        forward_decode(run_i, bi_proba, initial_proba)
+        for run_i in pseudo_emission_proba_per_run
+    ]
+    return [
+        [out_label[i] for i in ind_list]
+        for ind_list in forward_decode_letter_index_per_run
+    ]
+
+
+def viterbi_decode_from_letter_proba(
+    uni_count,
+    uni_k,
+    bi_count,
+    bi_k,
+    initial_proba,
+    ip_k,
+    letter_proba_per_run,
+    out_label,
+):
+    uni_proba = add_k_smoothing(uni_count, uni_k)
+    log_uni_proba = np.log(uni_proba)
+    bi_proba = add_k_smoothing(bi_count, bi_k)
+    log_bi_proba = np.log(bi_proba)
+    initial_proba = add_k_smoothing(initial_proba, ip_k)
+    pseudo_emission_proba_per_run = [
+        run_i / uni_proba[np.newaxis, :] for run_i in letter_proba_per_run
+    ]
+    viterbi_decode_letter_index_per_run = [
+        viterbi_decode(np.log(run_i), log_bi_proba, np.log(initial_proba))
+        for run_i in pseudo_emission_proba_per_run
+    ]
+    return [
+        [out_label[i] for i in ind_list]
+        for ind_list in viterbi_decode_letter_index_per_run
+    ]
+
+
+mackenzie_soukoreff_corpus = """my watch fell in the water
 prevailing wind from the east
 never too rich and never too thin
 breathing is difficult
@@ -651,7 +716,8 @@ experience is hard to come by
 everyone wants to win the lottery
 the picket line gives me the chills
 
-'''
+"""
+
 
 def grammar_info_gen(letter_labels, EVENT_LEN_S):
     if EVENT_LEN_S not in (3, 1.5):
@@ -680,13 +746,16 @@ def grammar_info_gen(letter_labels, EVENT_LEN_S):
 
         letter_space_conversion_dict = {l: l for l in stimulus_letters}
         letter_space_conversion_dict["\n"] = "   "
-        letter_space_conversion_dict[" "]  = "  "
+        letter_space_conversion_dict[" "] = "  "
     else:
         word_separation_tok = " "
         sent_separation_tok = "  "
         stimulus_text_content = (
             "\n".join(
-                ["".join(p).replace(sent_separation_tok, "\n")[1:] for p in letter_labels]
+                [
+                    "".join(p).replace(sent_separation_tok, "\n")[1:]
+                    for p in letter_labels
+                ]
             )
         ).replace("\n\n", "\n")
 
@@ -697,7 +766,7 @@ def grammar_info_gen(letter_labels, EVENT_LEN_S):
 
         letter_space_conversion_dict = {l: l for l in stimulus_letters}
         letter_space_conversion_dict["\n"] = "  "
-        letter_space_conversion_dict[" "]  = " "
+        letter_space_conversion_dict[" "] = " "
 
     stimulus_text_letter = "".join(
         [letter_space_conversion_dict[l] for l in stimulus_text_content]
@@ -749,10 +818,8 @@ def grammar_info_gen(letter_labels, EVENT_LEN_S):
             sentences_formed_by_stimulus_words_seperated_by_space_dict_grammar
         )
     )
-    sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_lattice_string = (
-        get_word_lattice_from_grammar(
-            sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_dict_grammar
-        )
+    sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_lattice_string = get_word_lattice_from_grammar(
+        sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_dict_grammar
     )
     stimulus_words_node_symbols, stimulus_words_link_start_end = parseLatticeString(
         sentences_formed_by_stimulus_words_seperated_by_space_lattice_string
@@ -799,10 +866,20 @@ def grammar_info_gen(letter_labels, EVENT_LEN_S):
         ]
     )
 
-    mackenzie_soukoreff_content_letters = '_space_ ' + ' '.join(mackenzie_soukoreff_content).replace('  ', ' _space_').replace('\n', '_space_ _space_') + ' _space_ _space_'
+    mackenzie_soukoreff_content_letters = (
+        "_space_ "
+        + " ".join(mackenzie_soukoreff_content)
+        .replace("  ", " _space_")
+        .replace("\n", "_space_ _space_")
+        + " _space_ _space_"
+    )
 
-    mackenzie_soukoreff_letter_one_gram_count = get_one_gram_feat_vector(mackenzie_soukoreff_text_letter)
-    mackenzie_soukoreff_letter_bigram_count = get_two_gram_feat_vector(mackenzie_soukoreff_text_letter)
+    mackenzie_soukoreff_letter_one_gram_count = get_one_gram_feat_vector(
+        mackenzie_soukoreff_text_letter
+    )
+    mackenzie_soukoreff_letter_bigram_count = get_two_gram_feat_vector(
+        mackenzie_soukoreff_text_letter
+    )
     stimulus_letter_one_gram_count = get_one_gram_feat_vector(stimulus_text_letter)
     stimulus_letter_bigram_count = get_two_gram_feat_vector(stimulus_text_letter)
 

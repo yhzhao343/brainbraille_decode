@@ -3,11 +3,13 @@ from numba import jit, prange, f8, i4, i8, b1
 import sys
 import numba as nb
 from .preprocessing import flatten_fold, flatten_feature
+from sklearn.model_selection import StratifiedShuffleSplit
 from .metrics import accuracy_score
 from functools import partial
 from joblib import Parallel, delayed
 from lipo import GlobalOptimizer
 from copy import deepcopy
+from .lm import letter_label
 
 
 def get_run_start_end_index(X):
@@ -505,11 +507,13 @@ def letter_bigram_viterbi_with_grammar_decode_numba_helper(
 
 
 def clf_fit_pred_score(clf, train_X_i, train_y_i, test_X_i, test_y_i):
-    return accuracy_score(test_y_i, clf.fit(train_X_i, train_y_i).predict(test_X_i))
+    return accuracy_score(
+        test_y_i, deepcopy(clf).fit(train_X_i, train_y_i).predict(test_X_i)
+    )
 
 
 def clf_fit(clf, X, y):
-    return clf.fit(X, y)
+    return deepcopy(clf).fit(X, y)
 
 
 def clf_pred_proba(clf, X):
@@ -654,12 +658,37 @@ def clf_predict(clf, X):
     return clf.predict(X)
 
 
-def clf_score_gen(clf, cv_train_X, cv_train_y, cv_test_X, cv_test_y, n_jobs=-1):
+def clf_score_gen(
+    clf,
+    cv_train_X,
+    cv_train_y,
+    cv_test_X,
+    cv_test_y,
+    sub_sample_ratio=0.2,
+    random_state=42,
+    n_jobs=-1,
+):
+    if sub_sample_ratio < 1.0:
+        sss = StratifiedShuffleSplit(
+            n_splits=1, test_size=sub_sample_ratio, random_state=random_state
+        )
+        subsample_ind_list = [
+            list(sss.split(train_X_i, train_y_i))[0][1]
+            for train_X_i, train_y_i in zip(cv_train_X, cv_train_y)
+        ]
+
+        cv_train_X, cv_train_y = zip(
+            *[
+                (np.array(cv_train_X[i])[ind], np.array(cv_train_y[i])[ind])
+                for i, ind in enumerate(subsample_ind_list)
+            ]
+        )
+
     def clf_score(**kwargs):
         scores = np.array(
             Parallel(n_jobs=n_jobs)(
                 delayed(clf_fit_pred_score)(
-                    clf.set_params(**kwargs),
+                    deepcopy(clf).set_params(**kwargs),
                     train_X_i,
                     train_y_i,
                     test_X_i,
@@ -695,6 +724,7 @@ def tune_clf(
     flexible_bound_threshold=0.1,
     random_state=42,
     n_calls=128,
+    sub_sample_ratio=0.2,
 ):
     # train_train_state_flatten_labels = [[l_i_j[r_i] for l_i_j in l_i] for l_i in train_train_state_flatten_labels]
     # train_valid_state_flatten_labels = [[l_i_j[r_i] for l_i_j in l_i] for l_i in train_valid_state_flatten_labels]
@@ -704,6 +734,8 @@ def tune_clf(
         train_train_state_flatten_labels,
         train_valid_extracted_flatten_Xs,
         train_valid_state_flatten_labels,
+        sub_sample_ratio,
+        random_state,
     )
     tune_clf_results, tune_clf_history = lipo_param_search(
         func_to_max,
@@ -717,6 +749,7 @@ def tune_clf(
         random_state=random_state,
         n_calls=n_calls,
     )
+    clf = deepcopy(clf).set_params(**tune_clf_results[0])
     return clf, tune_clf_results, tune_clf_history
 
 
@@ -809,18 +842,31 @@ def get_slices_and_extract_data(
         [j for i in split_i for j in i] for split_i in train_valid_state_labels
     ]
 
+    train_train_state_flatten_labels_by_r = [
+        [[e[r_i] for e in run_i] for run_i in train_train_state_flatten_labels]
+        for r_i in range(len(train_train_state_flatten_labels[0][0]))
+    ]
+    train_valid_state_flatten_labels_by_r = [
+        [[e[r_i] for e in run_i] for run_i in train_valid_state_flatten_labels]
+        for r_i in range(len(train_valid_state_flatten_labels[0][0]))
+    ]
+
     train_letter_flatten_label_i = [j for run_i in train_letter_label_i for j in run_i]
     test_letter_flatten_label_i = [j for run_i in test_letter_label_i for j in run_i]
     train_state_flatten_label_i = [j for run_i in train_state_label_i for j in run_i]
     test_state_flatten_label_i = [j for run_i in test_state_label_i for j in run_i]
 
     return (
+        train_letter_label_i,
         test_letter_label_i,
+        train_state_label_i,
         test_state_label_i,
         train_train_extracted_flatten_Xs,
         train_train_state_flatten_labels,
+        train_train_state_flatten_labels_by_r,
         train_valid_extracted_flatten_Xs,
         train_valid_state_flatten_labels,
+        train_valid_state_flatten_labels_by_r,
         test_sub_i,
         train_sub_i,
         train_state_flatten_label_i,
@@ -829,6 +875,7 @@ def get_slices_and_extract_data(
         train_train_i_list,
         train_valid_i_list,
     )
+
 
 def state_prob_to_letter_prob(predict_state_per_run, LETTERS_TO_DOT_array):
     predict_naive_letter_prob_per_run = np.array(
@@ -845,9 +892,97 @@ def state_prob_to_letter_prob(predict_state_per_run, LETTERS_TO_DOT_array):
     )
 
     predict_naive_letter_prob_marg_per_run = np.array(
-        [run_i / run_i.sum(axis=1)[:, np.newaxis] for run_i in predict_naive_letter_prob_per_run]
+        [
+            run_i / run_i.sum(axis=1)[:, np.newaxis]
+            for run_i in predict_naive_letter_prob_per_run
+        ]
     )
-    predict_naive_letter_prob_letter_index_per_run = [np.argmax(run_i, axis=1) for run_i in predict_naive_letter_prob_marg_per_run]
-    predict_naive_letter_prob_letter_per_run = [[letter_label[l_i] for l_i in run_i] for run_i in predict_naive_letter_prob_letter_index_per_run]
+    predict_naive_letter_prob_letter_index_per_run = [
+        np.argmax(run_i, axis=1) for run_i in predict_naive_letter_prob_marg_per_run
+    ]
+    predict_naive_letter_prob_letter_per_run = [
+        [letter_label[l_i] for l_i in run_i]
+        for run_i in predict_naive_letter_prob_letter_index_per_run
+    ]
 
-    return predict_naive_letter_prob_marg_per_run, predict_naive_letter_prob_letter_per_run
+    return (
+        predict_naive_letter_prob_marg_per_run,
+        predict_naive_letter_prob_letter_per_run,
+    )
+
+
+def tune_decode_smoothing(
+    train_x,
+    train_y,
+    uni_count,
+    bigram_count,
+    initial_proba,
+    letter_label,
+    decoder,
+    param_grid,
+    param_category_keys,
+    log_args_keys,
+    flexible_bounds,
+    optimum_val_max=1.0,
+    maximize=True,
+    flexible_bound_threshold=0.1,
+    random_state=42,
+    n_calls=128,
+):
+    func_to_max = partial(
+        decode_acc_score,
+        train_x=train_x,
+        train_y=train_y,
+        uni_count=uni_count,
+        bigram_count=bigram_count,
+        initial_proba=initial_proba,
+        letter_label=letter_label,
+        decoder=decoder,
+    )
+    tune_clf_results, tune_clf_history = lipo_param_search(
+        func_to_max,
+        param_grid,
+        param_category_keys,
+        log_args_keys,
+        flexible_bounds,
+        optimum_val_max=optimum_val_max,
+        maximize=maximize,
+        flexible_bound_threshold=flexible_bound_threshold,
+        random_state=random_state,
+        n_calls=n_calls,
+    )
+    decoder = partial(
+        decoder,
+        **tune_clf_results[0],
+        uni_count=uni_count,
+        bi_count=bigram_count,
+        initial_proba=initial_proba,
+        out_label=letter_label,
+    )
+    return decoder, tune_clf_results, tune_clf_history
+
+
+def decode_acc_score(
+    train_x,
+    train_y,
+    uni_count,
+    bigram_count,
+    initial_proba,
+    letter_label,
+    decoder,
+    uni_k,
+    bi_k,
+    ip_k,
+):
+    pred_y = decoder(
+        uni_count,
+        uni_k,
+        bigram_count,
+        bi_k,
+        initial_proba,
+        ip_k,
+        train_x,
+        letter_label,
+    )
+    acc = [accuracy_score(label_i, pred_i) for pred_i, label_i in zip(pred_y, train_y)]
+    return np.mean(acc)

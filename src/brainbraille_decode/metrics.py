@@ -33,7 +33,7 @@ def letter_label_to_word_label(letters_list):
 
 
 def accuracy_score(y_true, y_pred):
-    if (type(y_true) is list) and type(y_true[0]) is str:
+    if (type(y_true) in (list, np.ndarray)) and (type(y_true[0]) in (str, np.str_)):
         y_true = "".join(y_true)
         y_pred = "".join(y_pred)
     if (type(y_true) is str) and (type(y_pred) is str):
