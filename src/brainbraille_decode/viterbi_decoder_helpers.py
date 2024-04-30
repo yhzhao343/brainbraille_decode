@@ -658,6 +658,18 @@ def clf_predict(clf, X):
     return clf.predict(X)
 
 
+def clf_fit_each_r(clfs, X, yr, n_jobs=-1):
+    clfs = Parallel(n_jobs=n_jobs)(
+        delayed(clf_fit)(clf, X, np.array(yr)[:, i]) for i, clf in enumerate(clfs)
+    )
+    return clfs
+
+
+def clf_predict_proba_each_r(clfs, X, n_jobs=-1):
+    pred_y = Parallel(n_jobs=n_jobs)(delayed(clf_predict_proba)(clf, X) for clf in clfs)
+    return np.array(pred_y)
+
+
 def clf_score_gen(
     clf,
     cv_train_X,
