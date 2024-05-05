@@ -9,11 +9,19 @@ from .HTK import get_word_lattice_from_grammar, parseLatticeString
 
 letter_label = " abcdefghijklmnopqrstuvwxyz"
 
+
 def add_k_smoothing(counts, k=1.0):
     counts = np.array(counts, dtype=np.float64)
     return _add_k_smoothing(counts, k)
 
-@jit([f8[::1](f8[::1], f8), f8[:,::1](f8[:,::1], f8)] ,nopython=True, fastmath=True, parallel=True, cache=True)
+
+@jit(
+    [f8[::1](f8[::1], f8), f8[:, ::1](f8[:, ::1], f8)],
+    nopython=True,
+    fastmath=True,
+    parallel=True,
+    cache=True,
+)
 def _add_k_smoothing(counts, k):
     counts_plus_k = counts + k
     return counts_plus_k / counts_plus_k.sum()
@@ -126,20 +134,51 @@ def get_srilm_ngram(content, n=2, SRILM_PATH=None, **kwargs):
     delete_file_if_exists(ngram_out_path)
     return ngram_content
 
-@jit(i4[::1](f8[:,::1], f8[:,::1], f8[:,::1], f8[:,::1], i4[::1]), nopython=True, fastmath=True, parallel=False, cache=True)
-def _forward_decode(emission_proba, transition_proba, prev_trellis_val, viterbi_trellis, best_state_ind):
+
+@jit(
+    i4[::1](f8[:, ::1], f8[:, ::1], f8[:, ::1], f8[:, ::1], i4[::1]),
+    nopython=True,
+    fastmath=True,
+    parallel=False,
+    cache=True,
+)
+def _forward_decode(
+    emission_proba, transition_proba, prev_trellis_val, viterbi_trellis, best_state_ind
+):
     for time_i in range(len(emission_proba)):
-        viterbi_trellis[time_i, :] = emission_proba[time_i] * (prev_trellis_val @ transition_proba)
+        viterbi_trellis[time_i, :] = emission_proba[time_i] * (
+            prev_trellis_val @ transition_proba
+        )
         viterbi_trellis[time_i, :] /= viterbi_trellis[time_i, :].sum()
         prev_trellis_val[0] = viterbi_trellis[time_i, :]
         best_state_ind[time_i] = np.argmax(viterbi_trellis[time_i, :])
     return best_state_ind
 
-@jit(i4[::1](f8[:,::1], f8[::1], f8[:,::1], f8[:,::1], f8[:,::1], f8[:,::1], i4[::1]), nopython=True, fastmath=True, parallel=True, cache=True)
-def _forward_decode_from_state_proba(state_proba, uni_proba, bi_proba, prev_trellis_val, emission_proba, viterbi_trellis, best_state_ind):
-    for time_i in prange(len(state_proba)):
-        emission_proba[time_i] = state_proba[time_i] / uni_proba
-    return _forward_decode(emission_proba, bi_proba, prev_trellis_val, viterbi_trellis, best_state_ind)
+
+@jit(
+    i4[::1](
+        f8[:, ::1], f8[::1], f8[:, ::1], f8[:, ::1], f8[:, ::1], f8[:, ::1], i4[::1]
+    ),
+    nopython=True,
+    fastmath=True,
+    parallel=True,
+    cache=True,
+)
+def _forward_decode_from_hidden_state_proba(
+    hidden_state_proba,
+    uni_proba,
+    bi_proba,
+    prev_trellis_val,
+    emission_proba,
+    viterbi_trellis,
+    best_state_ind,
+):
+    for time_i in prange(len(hidden_state_proba)):
+        emission_proba[time_i] = hidden_state_proba[time_i] / uni_proba
+    return _forward_decode(
+        emission_proba, bi_proba, prev_trellis_val, viterbi_trellis, best_state_ind
+    )
+
 
 def forward_decode_from_letter_proba_for_all_runs(
     uni_count,
@@ -154,11 +193,17 @@ def forward_decode_from_letter_proba_for_all_runs(
     uni_proba = add_k_smoothing(uni_count, uni_k)
     bi_proba = add_k_smoothing(bi_count, bi_k)
     initial_proba = add_k_smoothing(initial_proba, ip_k)
-    forward_decode_letter_index_per_run = [forward_decode_from_state_proba(run_i, uni_proba, bi_proba, initial_proba) for run_i in letter_proba_per_run]
+    forward_decode_letter_index_per_run = [
+        forward_decode_from_hidden_state_proba(
+            run_i, uni_proba, bi_proba, initial_proba
+        )
+        for run_i in letter_proba_per_run
+    ]
     return [
         [out_label[i] for i in ind_list]
         for ind_list in forward_decode_letter_index_per_run
     ]
+
 
 def forward_decode(emission_proba, transition_proba, initial_proba=None):
     emission_proba = np.array(emission_proba, dtype=np.float64)
@@ -174,36 +219,73 @@ def forward_decode(emission_proba, transition_proba, initial_proba=None):
         initial_proba = initial_proba[np.newaxis, :]
     prev_trellis_val = np.copy(initial_proba)
     best_state_ind = np.empty(num_t, dtype=np.int32)
-    best_state_ind = _forward_decode(emission_proba, transition_proba, prev_trellis_val, viterbi_trellis, best_state_ind)
+    best_state_ind = _forward_decode(
+        emission_proba,
+        transition_proba,
+        prev_trellis_val,
+        viterbi_trellis,
+        best_state_ind,
+    )
     return best_state_ind
 
-def forward_decode_from_state_proba(state_proba, uni_proba, bi_proba, init_proba):
+
+def forward_decode_from_hidden_state_proba(
+    hidden_state_proba, uni_proba, bi_proba, init_proba
+):
     uni_proba = np.array(uni_proba, dtype=np.float64)
     bi_proba = np.array(bi_proba, dtype=np.float64)
     init_proba = np.array(init_proba, dtype=np.float64)
     if len(init_proba.shape) == 1:
         init_proba = init_proba[np.newaxis, :]
     prev_trellis_val = np.copy(init_proba)
-    state_proba = np.array(state_proba, dtype=np.float64)
-    emission_proba = np.empty_like(state_proba)
+    hidden_state_proba = np.array(hidden_state_proba, dtype=np.float64)
+    emission_proba = np.empty_like(hidden_state_proba)
     num_t, num_state = emission_proba.shape
     viterbi_trellis = np.empty((num_t, num_state), dtype=np.float64)
     best_state_ind = np.empty(num_t, dtype=np.int32)
-    return _forward_decode_from_state_proba(state_proba, uni_proba, bi_proba, prev_trellis_val, emission_proba, viterbi_trellis, best_state_ind)
+    return _forward_decode_from_hidden_state_proba(
+        hidden_state_proba,
+        uni_proba,
+        bi_proba,
+        prev_trellis_val,
+        emission_proba,
+        viterbi_trellis,
+        best_state_ind,
+    )
 
 
-@jit(i4[::1](f8[:,::1], f8[:,::1], f8[:,::1], f8[::1], f8[:,::1], i4[:,::1], i4[::1]), nopython=True, fastmath=True, parallel=False, cache=True)
-def _viterbi_decode(log_emission_proba, log_transition_proba, log_predict_proba, prev_trellis_val, viterbi_trellis, prev_table, best_state_ind):
+@jit(
+    i4[::1](
+        f8[:, ::1], f8[:, ::1], f8[:, ::1], f8[::1], f8[:, ::1], i4[:, ::1], i4[::1]
+    ),
+    nopython=True,
+    fastmath=True,
+    parallel=False,
+    cache=True,
+)
+def _viterbi_decode(
+    log_emission_proba,
+    log_transition_proba,
+    log_predict_proba,
+    prev_trellis_val,
+    viterbi_trellis,
+    prev_table,
+    best_state_ind,
+):
     viterbi_trellis[:, :] = -np.inf
     num_t, num_state = log_emission_proba.shape
     for time_i in range(num_t):
         for state_i in range(num_state):
-            log_predict_proba[state_i] = prev_trellis_val[state_i] + log_transition_proba[state_i]
+            log_predict_proba[state_i] = (
+                prev_trellis_val[state_i] + log_transition_proba[state_i]
+            )
         for state_i in range(num_state):
             best_i = np.argmax(log_predict_proba[:, state_i])
             best_log_prob = log_predict_proba[best_i, state_i]
             if best_log_prob > viterbi_trellis[time_i, state_i]:
-                viterbi_trellis[time_i, state_i] = best_log_prob + log_emission_proba[time_i, state_i]
+                viterbi_trellis[time_i, state_i] = (
+                    best_log_prob + log_emission_proba[time_i, state_i]
+                )
                 prev_table[time_i, state_i] = best_i
         prev_trellis_val = viterbi_trellis[time_i]
 
@@ -211,6 +293,7 @@ def _viterbi_decode(log_emission_proba, log_transition_proba, log_predict_proba,
     for i in range(num_t - 2, -1, -1):
         best_state_ind[i] = prev_table[i + 1, best_state_ind[i + 1]]
     return best_state_ind
+
 
 def viterbi_decode(log_emission_proba, log_transition_proba, initial_log_proba=None):
     log_emission_proba = np.array(log_emission_proba, dtype=np.float64)
@@ -227,21 +310,66 @@ def viterbi_decode(log_emission_proba, log_transition_proba, initial_log_proba=N
         initial_log_proba = initial_log_proba.squeeze()
     prev_trellis_val = np.copy(initial_log_proba)
     best_state_ind = np.empty(num_t, dtype=np.int32)
-    best_state_ind = _viterbi_decode(log_emission_proba, log_transition_proba, log_predict_proba, prev_trellis_val, viterbi_trellis, prev_table, best_state_ind)
+    best_state_ind = _viterbi_decode(
+        log_emission_proba,
+        log_transition_proba,
+        log_predict_proba,
+        prev_trellis_val,
+        viterbi_trellis,
+        prev_table,
+        best_state_ind,
+    )
     return best_state_ind
 
-@jit(i4[::1](f8[:,::1], f8[::1], f8[:,::1], f8[:,::1], f8[::1], f8[:,::1], f8[:,::1], i4[:,::1], i4[::1]), nopython=True, fastmath=True, parallel=True, cache=True)
-def _viterbi_decode_from_state_proba(state_proba, uni_proba, bi_proba, log_predict_proba, prev_trellis_val, log_emission_proba, viterbi_trellis, prev_table, best_state_ind):
+
+@jit(
+    i4[::1](
+        f8[:, ::1],
+        f8[::1],
+        f8[:, ::1],
+        f8[:, ::1],
+        f8[::1],
+        f8[:, ::1],
+        f8[:, ::1],
+        i4[:, ::1],
+        i4[::1],
+    ),
+    nopython=True,
+    fastmath=True,
+    parallel=True,
+    cache=True,
+)
+def _viterbi_decode_from_hidden_state_proba(
+    hidden_state_proba,
+    uni_proba,
+    bi_proba,
+    log_predict_proba,
+    prev_trellis_val,
+    log_emission_proba,
+    viterbi_trellis,
+    prev_table,
+    best_state_ind,
+):
     bi_proba = np.log(bi_proba)
     uni_proba = np.log(uni_proba)
-    state_proba = np.log(state_proba)
+    hidden_state_proba = np.log(hidden_state_proba)
     prev_trellis_val = np.log(prev_trellis_val)
-    for time_i in prange(len(state_proba)):
-        log_emission_proba[time_i] = state_proba[time_i] - uni_proba
-    return _viterbi_decode(log_emission_proba, bi_proba, log_predict_proba, prev_trellis_val, viterbi_trellis, prev_table, best_state_ind)
+    for time_i in prange(len(hidden_state_proba)):
+        log_emission_proba[time_i] = hidden_state_proba[time_i] - uni_proba
+    return _viterbi_decode(
+        log_emission_proba,
+        bi_proba,
+        log_predict_proba,
+        prev_trellis_val,
+        viterbi_trellis,
+        prev_table,
+        best_state_ind,
+    )
 
 
-def viterbi_decode_from_state_proba(state_proba, uni_proba, bi_proba, init_proba):
+def viterbi_decode_from_hidden_state_proba(
+    hidden_state_proba, uni_proba, bi_proba, init_proba
+):
     uni_proba = np.array(uni_proba, dtype=np.float64)
     bi_proba = np.array(bi_proba, dtype=np.float64)
     log_predict_proba = np.empty_like(bi_proba)
@@ -249,13 +377,24 @@ def viterbi_decode_from_state_proba(state_proba, uni_proba, bi_proba, init_proba
         init_proba = init_proba.squeeze()
     init_proba = np.array(init_proba, dtype=np.float64)
     prev_trellis_val = np.copy(init_proba)
-    state_proba = np.array(state_proba, dtype=np.float64)
-    log_emission_proba = np.empty_like(state_proba)
+    hidden_state_proba = np.array(hidden_state_proba, dtype=np.float64)
+    log_emission_proba = np.empty_like(hidden_state_proba)
     num_t, num_state = log_emission_proba.shape
     viterbi_trellis = np.empty((num_t, num_state), dtype=np.float64)
     prev_table = np.zeros((num_t, num_state), dtype=np.int32)
     best_state_ind = np.empty(num_t, dtype=np.int32)
-    return _viterbi_decode_from_state_proba(state_proba, uni_proba, bi_proba, log_predict_proba, prev_trellis_val, log_emission_proba, viterbi_trellis, prev_table, best_state_ind)
+    return _viterbi_decode_from_hidden_state_proba(
+        hidden_state_proba,
+        uni_proba,
+        bi_proba,
+        log_predict_proba,
+        prev_trellis_val,
+        log_emission_proba,
+        viterbi_trellis,
+        prev_table,
+        best_state_ind,
+    )
+
 
 def viterbi_decode_from_letter_proba_for_all_runs(
     uni_count,
@@ -270,7 +409,12 @@ def viterbi_decode_from_letter_proba_for_all_runs(
     uni_proba = add_k_smoothing(uni_count, uni_k)
     bi_proba = add_k_smoothing(bi_count, bi_k)
     initial_proba = add_k_smoothing(initial_proba, ip_k)
-    viterbi_decode_letter_index_per_run = [viterbi_decode_from_state_proba(run_i, uni_proba, bi_proba, initial_proba) for run_i in letter_proba_per_run]
+    viterbi_decode_letter_index_per_run = [
+        viterbi_decode_from_hidden_state_proba(
+            run_i, uni_proba, bi_proba, initial_proba
+        )
+        for run_i in letter_proba_per_run
+    ]
     return [
         [out_label[i] for i in ind_list]
         for ind_list in viterbi_decode_letter_index_per_run
@@ -781,7 +925,7 @@ the picket line gives me the chills
 """
 
 
-def grammar_info_gen(letter_labels, EVENT_LEN_S):
+def grammar_info_gen(letter_labels, EVENT_LEN_S=3, separation_tok_in_word=False):
     if EVENT_LEN_S not in (3, 1.5):
         EVENT_LEN_S = 3
 
@@ -803,12 +947,23 @@ def grammar_info_gen(letter_labels, EVENT_LEN_S):
 
         stimulus_letters = np.unique([l for l in stimulus_text_content])
         letter_conversion_dict = {l: l for l in stimulus_letters}
-        letter_conversion_dict["\n"] = "_space_ _space_ _space_"
-        letter_conversion_dict[" "] = "_space_ _space_"
 
-        letter_space_conversion_dict = {l: l for l in stimulus_letters}
-        letter_space_conversion_dict["\n"] = "   "
-        letter_space_conversion_dict[" "] = "  "
+        if separation_tok_in_word:
+            letter_conversion_dict["\n"] = "_space_"
+            letter_conversion_dict[" "] = "_space_"
+
+            letter_space_conversion_dict = {l: l for l in stimulus_letters}
+            letter_space_conversion_dict["\n"] = " "
+            letter_space_conversion_dict[" "] = " "
+
+        else:
+            letter_conversion_dict["\n"] = "_space_ _space_ _space_"
+            letter_conversion_dict[" "] = "_space_ _space_"
+
+            letter_space_conversion_dict = {l: l for l in stimulus_letters}
+            letter_space_conversion_dict["\n"] = "   "
+            letter_space_conversion_dict[" "] = "  "
+
     else:
         word_separation_tok = " "
         sent_separation_tok = "  "
@@ -820,15 +975,24 @@ def grammar_info_gen(letter_labels, EVENT_LEN_S):
                 ]
             )
         ).replace("\n\n", "\n")
-
         stimulus_letters = np.unique([l for l in stimulus_text_content])
         letter_conversion_dict = {l: l for l in stimulus_letters}
-        letter_conversion_dict["\n"] = "_space_ _space_"
-        letter_conversion_dict[" "] = "_space_"
 
-        letter_space_conversion_dict = {l: l for l in stimulus_letters}
-        letter_space_conversion_dict["\n"] = "  "
-        letter_space_conversion_dict[" "] = " "
+        if separation_tok_in_word:
+            letter_conversion_dict["\n"] = "_space_"
+            letter_conversion_dict[" "] = "_space_"
+
+            letter_space_conversion_dict = {l: l for l in stimulus_letters}
+            letter_space_conversion_dict["\n"] = " "
+            letter_space_conversion_dict[" "] = " "
+
+        else:
+            letter_conversion_dict["\n"] = "_space_ _space_"
+            letter_conversion_dict[" "] = "_space_"
+
+            letter_space_conversion_dict = {l: l for l in stimulus_letters}
+            letter_space_conversion_dict["\n"] = "  "
+            letter_space_conversion_dict[" "] = " "
 
     stimulus_text_letter = "".join(
         [letter_space_conversion_dict[l] for l in stimulus_text_content]
@@ -840,8 +1004,8 @@ def grammar_info_gen(letter_labels, EVENT_LEN_S):
     unique_mackenzie_soukoreff_words = np.unique(
         mackenzie_soukoreff_content.split()
     ).tolist()
-    unique_stimulus_words += [" "]
-    unique_mackenzie_soukoreff_words += [" "]
+    # unique_stimulus_words += [" "]
+    # unique_mackenzie_soukoreff_words += [" "]
 
     mackenzie_soukoreff_text_letter = "".join(
         [letter_space_conversion_dict[l] for l in mackenzie_soukoreff_content]
@@ -855,12 +1019,26 @@ def grammar_info_gen(letter_labels, EVENT_LEN_S):
         "_space_": [" "],
         "!NULL": [],
     }
+    if separation_tok_in_word:
+        additional_key_val["SENT-START"] = []
+
     unique_stimulus_word_dictionary = {
         w: [l for l in w if l != " "] for w in unique_stimulus_words
     }
     unique_mackenzie_soukoreff_word_dictionary = {
         w: [l for l in w if l != " "] for w in unique_mackenzie_soukoreff_words
     }
+    if separation_tok_in_word:
+        word_sep_list = [l for l in word_separation_tok]
+        unique_stimulus_word_dictionary = {
+            key: val + word_sep_list
+            for key, val in unique_stimulus_word_dictionary.items()
+        }
+        unique_mackenzie_soukoreff_word_dictionary = {
+            key: val + word_sep_list
+            for key, val in unique_mackenzie_soukoreff_word_dictionary.items()
+        }
+
     unique_stimulus_word_dictionary.update(additional_key_val)
     unique_mackenzie_soukoreff_word_dictionary.update(additional_key_val)
 
@@ -871,9 +1049,12 @@ def grammar_info_gen(letter_labels, EVENT_LEN_S):
     # { }                 denotes zero or more repetitions
     # < >                 denotes one or more repetitions
     # << >>               denotes context-sensitive loop
-
-    sentences_formed_by_stimulus_words_seperated_by_space_dict_grammar = f'$word = {" | ".join([k for k in unique_stimulus_words if k not in [SENT_START_TOK, SENT_END_TOK, " "]])} ;\n(<{SENT_START_TOK} {{ $word _space_ }} $word {SENT_END_TOK}> {{_space_}} )'
-    sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_dict_grammar = f'$word = {" | ".join([k for k in unique_mackenzie_soukoreff_words if k not in [SENT_START_TOK, SENT_END_TOK, " "]])} ;\n(<{SENT_START_TOK} {{ $word _space_ }} $word {SENT_END_TOK}> {{_space_}} )'
+    if separation_tok_in_word:
+        sentences_formed_by_stimulus_words_seperated_by_space_dict_grammar = f'$word = {" | ".join([k for k in unique_stimulus_words if k not in [SENT_START_TOK, SENT_END_TOK, " "]])} ;\n({{_space_}}<{SENT_START_TOK} {{ $word }} {SENT_END_TOK}> {{_space_}} )'
+        sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_dict_grammar = f'$word = {" | ".join([k for k in unique_mackenzie_soukoreff_words if k not in [SENT_START_TOK, SENT_END_TOK, " "]])} ;\n({{_space_}}<{SENT_START_TOK} {{ $word }} $word {SENT_END_TOK}> {{_space_}} )'
+    else:
+        sentences_formed_by_stimulus_words_seperated_by_space_dict_grammar = f'$word = {" | ".join([k for k in unique_stimulus_words if k not in [SENT_START_TOK, SENT_END_TOK, " "]])} ;\n(<{SENT_START_TOK} {{ $word _space_ }} $word {SENT_END_TOK}> {{_space_}} )'
+        sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_dict_grammar = f'$word = {" | ".join([k for k in unique_mackenzie_soukoreff_words if k not in [SENT_START_TOK, SENT_END_TOK, " "]])} ;\n(<{SENT_START_TOK} {{ $word _space_ }} $word {SENT_END_TOK}> {{_space_}} )'
 
     sentences_formed_by_stimulus_words_seperated_by_space_lattice_string = (
         get_word_lattice_from_grammar(

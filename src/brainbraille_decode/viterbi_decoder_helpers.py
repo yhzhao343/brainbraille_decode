@@ -12,24 +12,38 @@ from lipo import GlobalOptimizer
 from copy import deepcopy
 from .lm import letter_label
 
+
 def state_proba_to_letter_proba(state_proba, LETTERS_TO_DOT_array):
     num_t, num_state = len(state_proba), len(LETTERS_TO_DOT_array)
     state_proba = np.ascontiguousarray(state_proba, dtype=np.float64)
     naive_state_proba = np.empty((num_t, num_state), dtype=np.float64)
     naive_state_ind = np.empty(num_t, dtype=np.int32)
-    return _state_proba_to_letter_proba(naive_state_proba, naive_state_ind, state_proba, LETTERS_TO_DOT_array)
+    return _state_proba_to_letter_proba(
+        naive_state_proba, naive_state_ind, state_proba, LETTERS_TO_DOT_array
+    )
 
 
-@jit(nb.types.Tuple((f8[:,::1], i4[::1]))(f8[:,::1], i4[::1], f8[:,::1], b1[:,::1]), nopython=True, fastmath=True, parallel=True, cache=True)
-def _state_proba_to_letter_proba(naive_state_proba, naive_state_ind, state_proba, LETTERS_TO_DOT_array):
+@jit(
+    nb.types.Tuple((f8[:, ::1], i4[::1]))(f8[:, ::1], i4[::1], f8[:, ::1], b1[:, ::1]),
+    nopython=True,
+    fastmath=True,
+    parallel=True,
+    cache=True,
+)
+def _state_proba_to_letter_proba(
+    naive_state_proba, naive_state_ind, state_proba, LETTERS_TO_DOT_array
+):
     for time_i in prange(len(state_proba)):
         state_proba_i = state_proba[time_i]
         for letter_i in range(len(LETTERS_TO_DOT_array)):
             letter_mask = LETTERS_TO_DOT_array[letter_i]
-            naive_state_proba[time_i, letter_i] = np.prod(state_proba_i[letter_mask]) * np.prod(1-state_proba_i[~letter_mask])
+            naive_state_proba[time_i, letter_i] = np.prod(
+                state_proba_i[letter_mask]
+            ) * np.prod(1 - state_proba_i[~letter_mask])
         naive_state_proba[time_i, :] /= naive_state_proba[time_i, :].sum()
         naive_state_ind[time_i] = np.argmax(naive_state_proba[time_i, :])
     return naive_state_proba, naive_state_ind
+
 
 def get_run_start_end_index(X):
     X_each_run_len = [len(x_i) for x_i in X]
@@ -1017,3 +1031,31 @@ def decode_acc_score(
     )
     acc = [accuracy_score(label_i, pred_i) for pred_i, label_i in zip(pred_y, train_y)]
     return np.mean(acc)
+
+
+@jit(
+    f8[:, ::1](f8[:, ::1], f8[:, ::1], f8[::1]),
+    nopython=True,
+    fastmath=True,
+    parallel=True,
+    cache=True,
+)
+def _hidden_state_proba_to_emission_proba(emission_proba, hidden_state_proba, prior):
+    for time_i in prange(len(hidden_state_proba)):
+        emission_proba[time_i] = hidden_state_proba[time_i] / prior
+    return emission_proba
+
+
+@jit(
+    f8[:, ::1](f8[:, ::1], f8[:, ::1], f8[::1]),
+    nopython=True,
+    fastmath=True,
+    parallel=True,
+    cache=True,
+)
+def _log_hidden_state_proba_to_log_emission_proba(
+    log_emission_proba, log_hidden_state_proba, log_prior
+):
+    for time_i in prange(len(log_hidden_state_proba)):
+        log_emission_proba[time_i] = log_hidden_state_proba[time_i] - log_prior
+    return log_emission_proba
