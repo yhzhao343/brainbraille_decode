@@ -163,7 +163,7 @@ def resolve_null(
     curr_nodes_mask,
     non_end_null_node_mask,
     grammar_node_transition_table,
-    max_null_resolve_count=3,
+    max_null_resolve_count=5,
 ):
     next_nodes_null_mask = np.logical_and(curr_nodes_mask, non_end_null_node_mask)
     has_null = np.any(next_nodes_null_mask)
@@ -174,10 +174,8 @@ def resolve_null(
         )
         num_resolve_counter -= 1
     if num_resolve_counter == 0:
-        raise ValueError(
-            "Invalid grammar! Consecutive !Null node chain with length "
-            + " larger than max_null_resolve_count"
-        )
+        error_message = f"Consecutive !Null node chain with length largen than max_null_resolve_count {max_null_resolve_count}"
+        raise ValueError(error_message)
     return curr_nodes_mask
 
 
