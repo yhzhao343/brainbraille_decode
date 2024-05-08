@@ -1031,34 +1031,6 @@ def decode_acc_score(
     return np.mean(acc)
 
 
-@jit(
-    f8[:, ::1](f8[:, ::1], f8[:, ::1], f8[::1]),
-    nopython=True,
-    fastmath=True,
-    parallel=False,
-    cache=True,
-)
-def _hidden_state_proba_to_emission_proba(emission_proba, hidden_state_proba, prior):
-    for time_i in prange(len(hidden_state_proba)):
-        emission_proba[time_i] = hidden_state_proba[time_i] / prior
-    return emission_proba
-
-
-@jit(
-    f8[:, ::1](f8[:, ::1], f8[:, ::1], f8[::1]),
-    nopython=True,
-    fastmath=True,
-    parallel=False,
-    cache=True,
-)
-def _log_hidden_state_proba_to_log_emission_proba(
-    log_emission_proba, log_hidden_state_proba, log_prior
-):
-    for time_i in prange(len(log_hidden_state_proba)):
-        log_emission_proba[time_i] = log_hidden_state_proba[time_i] - log_prior
-    return log_emission_proba
-
-
 def symbol_info_preprocess(
     letter_label, symbol_nodes, symbol_node_trans_pair, node_output_letter
 ):

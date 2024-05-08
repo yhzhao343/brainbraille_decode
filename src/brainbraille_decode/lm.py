@@ -35,6 +35,52 @@ def add_k_gen(k, dtype=np.float64):
     return partial(add_k, k=k, dtype=dtype)
 
 
+@jit(
+    f8[:, ::1](f8[:, ::1], f8[:, ::1], f8[::1]),
+    nopython=True,
+    fastmath=True,
+    parallel=False,
+    cache=True,
+)
+def _hidden_state_proba_to_emission_proba(emission_proba, hidden_state_proba, prior):
+    min_prior = np.min(prior)
+    prior = prior / min_prior
+    for time_i in prange(len(hidden_state_proba)):
+        emission_proba[time_i] = hidden_state_proba[time_i] / prior
+    return emission_proba
+
+
+def hidden_state_proba_to_emission_proba(hidden_state_proba, prior):
+    emission_proba = np.empty_like(hidden_state_proba)
+    return _hidden_state_proba_to_emission_proba(
+        emission_proba, hidden_state_proba, prior
+    )
+
+
+@jit(
+    f8[:, ::1](f8[:, ::1], f8[:, ::1], f8[::1]),
+    nopython=True,
+    fastmath=True,
+    parallel=False,
+    cache=True,
+)
+def _log_hidden_state_proba_to_log_emission_proba(
+    log_emission_proba, log_hidden_state_proba, log_prior
+):
+    min_log_prior = np.min(log_prior)
+    log_prior = log_prior - min_log_prior
+    for time_i in prange(len(log_hidden_state_proba)):
+        log_emission_proba[time_i] = log_hidden_state_proba[time_i] - log_prior
+    return log_emission_proba
+
+
+def log_hidden_state_proba_to_log_emission_proba(log_hidden_state_proba, log_prior):
+    log_emission_proba = np.empty_like(log_hidden_state_proba)
+    return _log_hidden_state_proba_to_log_emission_proba(
+        log_emission_proba, log_hidden_state_proba, log_prior
+    )
+
+
 def counts_to_proba(counts, smoothing=add_k_gen(1, np.float64)):
     new_counts = smoothing(counts=counts)
     proba = (new_counts.T / new_counts.sum(axis=-1)).T
@@ -173,8 +219,9 @@ def _forward_decode_from_hidden_state_proba(
     viterbi_trellis,
     best_state_ind,
 ):
-    for time_i in prange(len(hidden_state_proba)):
-        emission_proba[time_i] = hidden_state_proba[time_i] / uni_proba
+    emission_proba = _hidden_state_proba_to_emission_proba(
+        emission_proba, hidden_state_proba, uni_proba
+    )
     return _forward_decode(
         emission_proba, bi_proba, prev_trellis_val, viterbi_trellis, best_state_ind
     )
@@ -354,8 +401,9 @@ def _viterbi_decode_from_hidden_state_proba(
     uni_proba = np.log(uni_proba)
     hidden_state_proba = np.log(hidden_state_proba)
     prev_trellis_val = np.log(prev_trellis_val)
-    for time_i in prange(len(hidden_state_proba)):
-        log_emission_proba[time_i] = hidden_state_proba[time_i] - uni_proba
+    log_emission_proba = _log_hidden_state_proba_to_log_emission_proba(
+        log_emission_proba, hidden_state_proba, uni_proba
+    )
     return _viterbi_decode(
         log_emission_proba,
         bi_proba,
