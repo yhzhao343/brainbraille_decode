@@ -10,11 +10,6 @@ from .HTK import get_word_lattice_from_grammar, parseLatticeString
 letter_label = " abcdefghijklmnopqrstuvwxyz"
 
 
-def add_k_smoothing(counts, k=1.0):
-    counts = np.array(counts, dtype=np.float64)
-    return _add_k_smoothing(counts, k)
-
-
 @jit(
     [f8[::1](f8[::1], f8), f8[:, ::1](f8[:, ::1], f8)],
     nopython=True,
@@ -25,6 +20,11 @@ def add_k_smoothing(counts, k=1.0):
 def _add_k_smoothing(counts, k):
     counts_plus_k = counts + k
     return counts_plus_k / counts_plus_k.sum()
+
+
+def add_k_smoothing(counts, k=1.0):
+    counts = np.array(counts, dtype=np.float64)
+    return _add_k_smoothing(counts, k)
 
 
 def add_k(k, counts, dtype=np.float64):

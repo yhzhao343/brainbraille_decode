@@ -10,7 +10,7 @@ from functools import partial
 from joblib import Parallel, delayed
 from lipo import GlobalOptimizer
 from copy import deepcopy
-from .lm import letter_label
+from .lm import letter_label, _add_k_smoothing
 
 
 def state_proba_to_letter_proba(state_proba, LETTERS_TO_DOT_array):
@@ -1060,9 +1060,9 @@ def _log_hidden_state_proba_to_log_emission_proba(
 
 
 def symbol_info_preprocess(
-    letter_label, symbol_nodes, symbol_node_trans, node_output_letter
+    letter_label, symbol_nodes, symbol_node_trans_pair, node_output_letter
 ):
-    symbol_node_trans_pair = np.array(symbol_node_trans, dtype=np.int32)
+    symbol_node_trans_pair = np.array(symbol_node_trans_pair, dtype=np.int32)
     letter_2_ind = {l: i for i, l in enumerate(letter_label)}
     symbol_node_out_list, symbol_node_out_spelling = zip(*node_output_letter.items())
     num_symbol_node_out = len(symbol_node_out_list)
@@ -1070,12 +1070,12 @@ def symbol_info_preprocess(
         [len(spelling) for spelling in symbol_node_out_spelling], dtype=np.int32
     )
     max_symbol_node_out_len = np.max(symbol_nodes_out_len)
-    symbol_nodes_spelling_matrix = np.zeros(
+    symbol_nodes_out_spelling_matrix = np.zeros(
         (num_symbol_node_out, max_symbol_node_out_len), dtype=np.int32
     )
     for node_i, spelling in enumerate(symbol_node_out_spelling):
         for letter_i, letter in enumerate(spelling):
-            symbol_nodes_spelling_matrix[node_i][letter_i] = letter_2_ind[letter]
+            symbol_nodes_out_spelling_matrix[node_i][letter_i] = letter_2_ind[letter]
 
     symbol_node_out_to_ndx = {
         symbol_node: i for i, symbol_node in enumerate(symbol_node_out_list)
@@ -1104,23 +1104,25 @@ def symbol_info_preprocess(
     return (
         symbol_node_trans,
         symbol_nodes_spelling_ndx,
-        symbol_nodes_spelling_matrix,
+        symbol_nodes_out_spelling_matrix,
         symbol_nodes_out_len,
     )
 
 
 def get_log_symbol_node_spelling_trans(
-    log_transition_proba, symbol_nodes_spelling_matrix, symbol_nodes_out_len
+    log_transition_proba, symbol_nodes_out_spelling_matrix, symbol_nodes_out_len
 ):
+    """get the word internal letter transition probability"""
     symbol_node_out_trans_log_proba = np.zeros(
         len(symbol_nodes_out_len), dtype=np.float64
     )
-    return _get_log_symbol_node_spelling_trans(
+    symbol_node_out_trans_log_proba = _get_log_symbol_node_spelling_trans(
         log_transition_proba,
-        symbol_nodes_spelling_matrix,
+        symbol_nodes_out_spelling_matrix,
         symbol_nodes_out_len,
         symbol_node_out_trans_log_proba,
     )
+    return symbol_node_out_trans_log_proba
 
 
 @jit(
@@ -1132,17 +1134,17 @@ def get_log_symbol_node_spelling_trans(
 )
 def _get_log_symbol_node_spelling_trans(
     log_transition_proba,
-    symbol_nodes_spelling_matrix,
+    symbol_nodes_out_spelling_matrix,
     symbol_nodes_out_len,
     symbol_node_out_trans_log_proba,
 ):
-    num_symbol_node, max_word_len = symbol_nodes_spelling_matrix.shape
-    for i in range(num_symbol_node):
+    num_symbol_node_out = len(symbol_nodes_out_len)
+    for i in range(num_symbol_node_out):
         word_len = symbol_nodes_out_len[i]
         if word_len:
             for j in range(word_len - 1):
-                l_i1 = symbol_nodes_spelling_matrix[i][j]
-                l_i2 = symbol_nodes_spelling_matrix[i][j + 1]
+                l_i1 = symbol_nodes_out_spelling_matrix[i][j]
+                l_i2 = symbol_nodes_out_spelling_matrix[i][j + 1]
                 symbol_node_out_trans_log_proba[i] += log_transition_proba[l_i1][l_i2]
     return symbol_node_out_trans_log_proba
 
@@ -1163,6 +1165,7 @@ def get_symbol_node_trans(
     n_resolve,
     end_node_index,
 ):
+    """Resolve transition to !NULL state in symbol node transition matrix"""
     num_symbol_nodes = len(symbol_nodes_spelling_ndx)
     for i in range(len(symbol_node_trans_pair)):
         symbol_node_trans_matrix[
@@ -1190,16 +1193,17 @@ def get_symbol_node_trans_log_proba(
     symbol_k,
     symbol_nodes_spelling_ndx,
     log_transition_proba,
-    symbol_nodes_spelling_matrix,
+    symbol_nodes_out_spelling_matrix,
     symbol_nodes_out_len,
 ):
+    """Return the symbol node -> symbol node transition probability"""
     log_symbol_node_trans_proba = np.zeros_like(symbol_node_trans)
     log_symbol_node_trans_proba = _get_symbol_node_trans_log_proba(
         symbol_node_trans,
         symbol_k,
         symbol_nodes_spelling_ndx,
         log_transition_proba,
-        symbol_nodes_spelling_matrix,
+        symbol_nodes_out_spelling_matrix,
         symbol_nodes_out_len,
         log_symbol_node_trans_proba,
     )
@@ -1224,7 +1228,7 @@ def _get_symbol_node_trans_log_proba(
     symbol_k,
     symbol_nodes_spelling_ndx,
     log_transition_proba,
-    symbol_nodes_spelling_matrix,
+    symbol_nodes_out_spelling_matrix,
     symbol_nodes_out_len,
     log_symbol_node_trans_proba,
 ):
@@ -1237,10 +1241,10 @@ def _get_symbol_node_trans_log_proba(
                 to_out_ndx = symbol_nodes_spelling_ndx[j]
                 next_word_len = symbol_nodes_out_len[to_out_ndx]
                 if (symbol_node_trans[i][j] > 0) and next_word_len:
-                    prev_word_end_l = symbol_nodes_spelling_matrix[from_out_ndx][
+                    prev_word_end_l = symbol_nodes_out_spelling_matrix[from_out_ndx][
                         prev_word_len - 1
                     ]
-                    next_word_start_l = symbol_nodes_spelling_matrix[to_out_ndx][0]
+                    next_word_start_l = symbol_nodes_out_spelling_matrix[to_out_ndx][0]
                     log_symbol_node_trans_proba[from_out_ndx][
                         to_out_ndx
                     ] = log_transition_proba[prev_word_end_l][
