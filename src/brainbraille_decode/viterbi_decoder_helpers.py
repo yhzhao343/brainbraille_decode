@@ -27,7 +27,7 @@ def state_proba_to_letter_proba(state_proba, LETTERS_TO_DOT_array):
     nb.types.Tuple((f8[:, ::1], i4[::1]))(f8[:, ::1], i4[::1], f8[:, ::1], b1[:, ::1]),
     nopython=True,
     fastmath=True,
-    parallel=True,
+    parallel=False,
     cache=True,
 )
 def _state_proba_to_letter_proba(
@@ -105,7 +105,7 @@ def letter_label_to_state_label(y, LETTERS_TO_DOT, region_order):
 
 @jit(
     f8[:, ::1](f8[:, :], b1[:, ::1], f8[:, ::1]),
-    parallel=True,
+    parallel=False,
     nopython=True,
     fastmath=True,
     cache=True,
@@ -1035,7 +1035,7 @@ def decode_acc_score(
     f8[:, ::1](f8[:, ::1], f8[:, ::1], f8[::1]),
     nopython=True,
     fastmath=True,
-    parallel=True,
+    parallel=False,
     cache=True,
 )
 def _hidden_state_proba_to_emission_proba(emission_proba, hidden_state_proba, prior):
@@ -1048,7 +1048,7 @@ def _hidden_state_proba_to_emission_proba(emission_proba, hidden_state_proba, pr
     f8[:, ::1](f8[:, ::1], f8[:, ::1], f8[::1]),
     nopython=True,
     fastmath=True,
-    parallel=True,
+    parallel=False,
     cache=True,
 )
 def _log_hidden_state_proba_to_log_emission_proba(

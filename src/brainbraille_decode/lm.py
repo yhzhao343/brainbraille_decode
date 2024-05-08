@@ -14,7 +14,7 @@ letter_label = " abcdefghijklmnopqrstuvwxyz"
     [f8[::1](f8[::1], f8), f8[:, ::1](f8[:, ::1], f8)],
     nopython=True,
     fastmath=True,
-    parallel=True,
+    parallel=False,
     cache=True,
 )
 def _add_k_smoothing(counts, k):
@@ -161,7 +161,7 @@ def _forward_decode(
     ),
     nopython=True,
     fastmath=True,
-    parallel=True,
+    parallel=False,
     cache=True,
 )
 def _forward_decode_from_hidden_state_proba(
@@ -336,7 +336,7 @@ def viterbi_decode(log_emission_proba, log_transition_proba, initial_log_proba=N
     ),
     nopython=True,
     fastmath=True,
-    parallel=True,
+    parallel=False,
     cache=True,
 )
 def _viterbi_decode_from_hidden_state_proba(
