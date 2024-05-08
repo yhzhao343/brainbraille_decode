@@ -475,6 +475,7 @@ def get_log_symbol_out_emission(
     symbol_nodes_out_spelling_matrix,
     symbol_nodes_out_len,
 ):
+    """Log emission probability of a word output ending at time t"""
     num_symbol_node_out = len(symbol_nodes_out_len)
     num_t = len(log_emission_proba)
     symbol_node_emi_proba = np.zeros((num_t, num_symbol_node_out), dtype=np.float64)
