@@ -469,6 +469,60 @@ def viterbi_decode_from_letter_proba_for_all_runs(
     ]
 
 
+def get_log_symbol_out_emission(
+    log_emission_proba,
+    symbol_node_out_trans_log_proba,
+    symbol_nodes_out_spelling_matrix,
+    symbol_nodes_out_len,
+):
+    num_symbol_node_out = len(symbol_nodes_out_len)
+    num_t = len(log_emission_proba)
+    symbol_node_emi_proba = np.zeros((num_t, num_symbol_node_out), dtype=np.float64)
+    symbol_node_emi_proba = _get_log_symbol_out_emission(
+        symbol_node_emi_proba,
+        log_emission_proba,
+        symbol_node_out_trans_log_proba,
+        symbol_nodes_out_spelling_matrix,
+        symbol_nodes_out_len,
+    )
+    return symbol_node_emi_proba
+
+
+@jit(
+    f8[:, ::1](f8[:, ::1], f8[:, ::1], f8[::1], i4[:, ::1], i4[::1]),
+    nopython=True,
+    fastmath=True,
+    parallel=False,
+    cache=True,
+)
+def _get_log_symbol_out_emission(
+    symbol_node_emi_proba,
+    log_emission_proba,
+    symbol_node_out_trans_log_proba,
+    symbol_nodes_out_spelling_matrix,
+    symbol_nodes_out_len,
+):
+    (
+        num_t,
+        num_symbol_node_out,
+    ) = (
+        symbol_node_emi_proba.shape
+    )  # len(symbol_node_emi_proba), len(log_emission_proba)
+    for node_out_i in prange(num_symbol_node_out):
+        node_len = symbol_nodes_out_len[node_out_i]
+        log_letter_trans_proba = symbol_node_out_trans_log_proba[node_out_i]
+        if node_len > 0:
+            for t_i in range(node_len - 1, num_t):
+                symbol_node_emi_proba[t_i][node_out_i] = log_letter_trans_proba
+                for l_i in range(node_len):
+                    t_l_i = t_i - node_len + l_i + 1
+                    letter = symbol_nodes_out_spelling_matrix[node_out_i][l_i]
+                    symbol_node_emi_proba[t_i][node_out_i] += log_emission_proba[t_l_i][
+                        letter
+                    ]
+    return symbol_node_emi_proba
+
+
 mackenzie_soukoreff_corpus = """my watch fell in the water
 prevailing wind from the east
 never too rich and never too thin
