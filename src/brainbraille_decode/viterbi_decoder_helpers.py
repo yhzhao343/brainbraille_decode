@@ -1160,26 +1160,26 @@ def get_symbol_node_trans(
     return symbol_node_trans_proba
 
 
-def get_symbol_node_trans_log_proba(
-    symbol_node_trans,
-    symbol_k,
-    symbol_nodes_spelling_ndx,
-    log_transition_proba,
-    symbol_nodes_out_spelling_matrix,
-    symbol_nodes_out_len,
-):
-    """Return the symbol node -> symbol node transition probability"""
-    log_symbol_node_trans_proba = np.zeros_like(symbol_node_trans)
-    log_symbol_node_trans_proba = _get_symbol_node_trans_log_proba(
-        symbol_node_trans,
-        symbol_k,
-        symbol_nodes_spelling_ndx,
-        log_transition_proba,
-        symbol_nodes_out_spelling_matrix,
-        symbol_nodes_out_len,
-        log_symbol_node_trans_proba,
-    )
-    return log_symbol_node_trans_proba
+# def get_symbol_node_trans_log_proba(
+#     symbol_node_trans,
+#     symbol_k,
+#     symbol_nodes_spelling_ndx,
+#     log_transition_proba,
+#     symbol_nodes_out_spelling_matrix,
+#     symbol_nodes_out_len,
+# ):
+#     """Return the symbol node -> symbol node transition probability"""
+#     log_symbol_node_trans_proba = np.zeros_like(symbol_node_trans)
+#     log_symbol_node_trans_proba = _get_symbol_node_trans_log_proba(
+#         symbol_node_trans,
+#         symbol_k,
+#         symbol_nodes_spelling_ndx,
+#         log_transition_proba,
+#         symbol_nodes_out_spelling_matrix,
+#         symbol_nodes_out_len,
+#         log_symbol_node_trans_proba,
+#     )
+#     return log_symbol_node_trans_proba
 
 
 @jit(f8(f8[:]), nopython=True, parallel=False, fastmath=True, cache=True)
@@ -1188,39 +1188,39 @@ def logsumexp(x):
     return c + np.log(np.sum(np.exp(x - c)))
 
 
-@jit(
-    f8[:, ::1](f8[:, ::1], f8, i4[::1], f8[:, ::1], i4[:, ::1], i4[::1], f8[:, ::1]),
-    nopython=True,
-    parallel=False,
-    fastmath=True,
-    cache=True,
-)
-def _get_symbol_node_trans_log_proba(
-    symbol_node_trans,
-    symbol_k,
-    symbol_nodes_spelling_ndx,
-    log_transition_proba,
-    symbol_nodes_out_spelling_matrix,
-    symbol_nodes_out_len,
-    log_symbol_node_trans_proba,
-):
-    num_symbol_node = symbol_node_trans.shape[0]
-    for i in range(num_symbol_node):
-        from_out_ndx = symbol_nodes_spelling_ndx[i]
-        prev_word_len = symbol_nodes_out_len[from_out_ndx]
-        if prev_word_len:
-            for j in range(num_symbol_node):
-                to_out_ndx = symbol_nodes_spelling_ndx[j]
-                next_word_len = symbol_nodes_out_len[to_out_ndx]
-                if (symbol_node_trans[i][j] > 0) and next_word_len:
-                    prev_word_end_l = symbol_nodes_out_spelling_matrix[from_out_ndx][
-                        prev_word_len - 1
-                    ]
-                    next_word_start_l = symbol_nodes_out_spelling_matrix[to_out_ndx][0]
-                    log_symbol_node_trans_proba[from_out_ndx][
-                        to_out_ndx
-                    ] = log_transition_proba[prev_word_end_l][
-                        next_word_start_l
-                    ]  # - np.log(next_word_len)
-    log_symbol_node_trans_proba += np.log(_add_k_smoothing(symbol_node_trans, symbol_k))
-    return log_symbol_node_trans_proba
+# @jit(
+#     f8[:, ::1](f8[:, ::1], f8, i4[::1], f8[:, ::1], i4[:, ::1], i4[::1], f8[:, ::1]),
+#     nopython=True,
+#     parallel=False,
+#     fastmath=True,
+#     cache=True,
+# )
+# def _get_symbol_node_trans_log_proba(
+#     symbol_node_trans,
+#     symbol_k,
+#     symbol_nodes_spelling_ndx,
+#     log_transition_proba,
+#     symbol_nodes_out_spelling_matrix,
+#     symbol_nodes_out_len,
+#     log_symbol_node_trans_proba,
+# ):
+#     num_symbol_node = symbol_node_trans.shape[0]
+#     for i in range(num_symbol_node):
+#         from_out_ndx = symbol_nodes_spelling_ndx[i]
+#         prev_word_len = symbol_nodes_out_len[from_out_ndx]
+#         if prev_word_len:
+#             for j in range(num_symbol_node):
+#                 to_out_ndx = symbol_nodes_spelling_ndx[j]
+#                 next_word_len = symbol_nodes_out_len[to_out_ndx]
+#                 if (symbol_node_trans[i][j] > 0) and next_word_len:
+#                     prev_word_end_l = symbol_nodes_out_spelling_matrix[from_out_ndx][
+#                         prev_word_len - 1
+#                     ]
+#                     next_word_start_l = symbol_nodes_out_spelling_matrix[to_out_ndx][0]
+#                     log_symbol_node_trans_proba[from_out_ndx][
+#                         to_out_ndx
+#                     ] = log_transition_proba[prev_word_end_l][
+#                         next_word_start_l
+#                     ]  # - np.log(next_word_len)
+#     log_symbol_node_trans_proba += np.log(_add_k_smoothing(symbol_node_trans, symbol_k))
+#     return log_symbol_node_trans_proba

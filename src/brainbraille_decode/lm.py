@@ -11,7 +11,7 @@ letter_label = " abcdefghijklmnopqrstuvwxyz"
 
 
 @jit(
-    [f8[::1](f8[::1], f8), f8[:, ::1](f8[:, ::1], f8)],
+    f8[:, ::1](f8[:, ::1], f8),
     nopython=True,
     fastmath=True,
     parallel=False,
@@ -19,12 +19,21 @@ letter_label = " abcdefghijklmnopqrstuvwxyz"
 )
 def _add_k_smoothing(counts, k):
     counts_plus_k = counts + k
-    return counts_plus_k / counts_plus_k.sum()
+    from_n = len(counts_plus_k)
+    for i in range(from_n):
+        counts_plus_k[i] /= counts_plus_k[i].sum()
+    return counts_plus_k
 
 
 def add_k_smoothing(counts, k=1.0):
     counts = np.array(counts, dtype=np.float64)
-    return _add_k_smoothing(counts, k)
+    is_2d = len(counts.shape) == 2
+    if not is_2d:
+        counts = counts[np.newaxis, :]
+    counts = _add_k_smoothing(counts, k)
+    if not is_2d:
+        counts = counts[0]
+    return counts
 
 
 def add_k(k, counts, dtype=np.float64):
