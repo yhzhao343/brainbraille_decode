@@ -975,6 +975,7 @@ def tune_decode_smoothing(
 ):
     func_to_max = partial(
         decode_acc_score,
+        smoothing=smoothing,
         train_x=train_x,
         train_y=train_y,
         uni_count=uni_count,
@@ -1010,6 +1011,7 @@ def tune_decode_smoothing(
 def decode_acc_score(
     train_x,
     train_y,
+    smoothing,
     uni_count,
     bigram_count,
     initial_proba,
@@ -1020,6 +1022,7 @@ def decode_acc_score(
     ip_k,
 ):
     pred_y = decoder(
+        smoothing,
         uni_count,
         uni_k,
         bigram_count,
