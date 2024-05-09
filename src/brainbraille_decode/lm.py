@@ -435,10 +435,10 @@ def _viterbi_decode_from_hidden_state_proba(
     prev_table,
     best_state_ind,
 ):
-    bi_proba = np.log(bi_proba)
-    uni_proba = np.log(uni_proba)
-    hidden_state_proba = np.log(hidden_state_proba)
-    prev_trellis_val = np.log(prev_trellis_val)
+    bi_proba = np.log1p(bi_proba)
+    uni_proba = np.log1p(uni_proba)
+    hidden_state_proba = np.log1p(hidden_state_proba)
+    prev_trellis_val = np.log1p(prev_trellis_val)
     log_emission_proba = _log_hidden_state_proba_to_log_emission_proba(
         log_emission_proba, hidden_state_proba, uni_proba
     )

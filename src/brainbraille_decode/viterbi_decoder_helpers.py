@@ -1190,7 +1190,7 @@ def get_symbol_node_trans(
 @jit(f8(f8[:]), nopython=True, parallel=False, fastmath=True, cache=True)
 def logsumexp(x):
     c = x.max()
-    return c + np.log(np.sum(np.exp(x - c)))
+    return c + np.log1p(np.sum(np.expm1(x - c)))
 
 
 # @jit(
