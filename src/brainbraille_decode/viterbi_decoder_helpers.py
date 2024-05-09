@@ -1221,8 +1221,6 @@ def _get_symbol_node_trans_log_proba(
                         to_out_ndx
                     ] = log_transition_proba[prev_word_end_l][
                         next_word_start_l
-                    ] - np.log(
-                        next_word_len
-                    )
+                    ]  # - np.log(next_word_len)
     log_symbol_node_trans_proba += np.log(_add_k_smoothing(symbol_node_trans, symbol_k))
     return log_symbol_node_trans_proba
