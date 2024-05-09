@@ -20,8 +20,10 @@ letter_label = " abcdefghijklmnopqrstuvwxyz"
 def _add_k_percent_smoothing(counts, k=0.01):
     from_n = len(counts)
     for i in range(from_n):
-        counts[i] += counts[i].sum() * k
-        counts[i] /= counts[i].sum()
+        counts_sum = counts[i].sum()
+        if counts_sum > 0:
+            counts[i] += counts_sum * k
+            counts[i] /= counts[i].sum()
     return counts
 
 
