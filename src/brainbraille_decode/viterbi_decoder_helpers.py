@@ -10,7 +10,7 @@ from functools import partial
 from joblib import Parallel, delayed
 from lipo import GlobalOptimizer
 from copy import deepcopy
-from .lm import letter_label, _add_k_smoothing
+from .lm import letter_label
 
 
 def state_proba_to_letter_proba(state_proba, LETTERS_TO_DOT_array):
@@ -962,6 +962,7 @@ def tune_decode_smoothing(
     initial_proba,
     letter_label,
     decoder,
+    smoothing,
     param_grid,
     param_category_keys,
     log_args_keys,
@@ -997,6 +998,7 @@ def tune_decode_smoothing(
     decoder = partial(
         decoder,
         **tune_clf_results[0],
+        smoothing=smoothing,
         uni_count=uni_count,
         bi_count=bigram_count,
         initial_proba=initial_proba,

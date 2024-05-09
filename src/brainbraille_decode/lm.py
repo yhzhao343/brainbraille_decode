@@ -17,6 +17,32 @@ letter_label = " abcdefghijklmnopqrstuvwxyz"
     parallel=False,
     cache=True,
 )
+def _add_k_percent_smoothing(counts, k=0.01):
+    from_n = len(counts)
+    for i in range(from_n):
+        counts[i] += counts[i].sum() * k
+        counts[i] /= counts[i].sum()
+    return counts
+
+
+def add_k_percent_smoothing(counts, k=0.01):
+    counts = np.array(counts, dtype=np.float64)
+    is_2d = len(counts.shape) == 2
+    if not is_2d:
+        counts = counts[np.newaxis, :]
+    counts = _add_k_percent_smoothing(counts, k)
+    if not is_2d:
+        counts = counts[0]
+    return counts
+
+
+@jit(
+    f8[:, ::1](f8[:, ::1], f8),
+    nopython=True,
+    fastmath=True,
+    parallel=False,
+    cache=True,
+)
 def _add_k_smoothing(counts, k):
     counts_plus_k = counts + k
     from_n = len(counts_plus_k)
@@ -237,6 +263,7 @@ def _forward_decode_from_hidden_state_proba(
 
 
 def forward_decode_from_letter_proba_for_all_runs(
+    smoothing,
     uni_count,
     uni_k,
     bi_count,
@@ -246,9 +273,9 @@ def forward_decode_from_letter_proba_for_all_runs(
     letter_proba_per_run,
     out_label,
 ):
-    uni_proba = add_k_smoothing(uni_count, uni_k)
-    bi_proba = add_k_smoothing(bi_count, bi_k)
-    initial_proba = add_k_smoothing(initial_proba, ip_k)
+    uni_proba = smoothing(uni_count, uni_k)
+    bi_proba = smoothing(bi_count, bi_k)
+    initial_proba = smoothing(initial_proba, ip_k)
     forward_decode_letter_index_per_run = [
         forward_decode_from_hidden_state_proba(
             run_i, uni_proba, bi_proba, initial_proba
@@ -454,6 +481,7 @@ def viterbi_decode_from_hidden_state_proba(
 
 
 def viterbi_decode_from_letter_proba_for_all_runs(
+    smoothing,
     uni_count,
     uni_k,
     bi_count,
@@ -463,9 +491,9 @@ def viterbi_decode_from_letter_proba_for_all_runs(
     letter_proba_per_run,
     out_label,
 ):
-    uni_proba = add_k_smoothing(uni_count, uni_k)
-    bi_proba = add_k_smoothing(bi_count, bi_k)
-    initial_proba = add_k_smoothing(initial_proba, ip_k)
+    uni_proba = smoothing(uni_count, uni_k)
+    bi_proba = smoothing(bi_count, bi_k)
+    initial_proba = smoothing(initial_proba, ip_k)
     viterbi_decode_letter_index_per_run = [
         viterbi_decode_from_hidden_state_proba(
             run_i, uni_proba, bi_proba, initial_proba
