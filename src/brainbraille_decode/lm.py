@@ -17,13 +17,11 @@ letter_label = " abcdefghijklmnopqrstuvwxyz"
     parallel=False,
     cache=True,
 )
-def _add_k_percent_smoothing(counts, k=0.01):
+def _add_k_percent_smoothing(counts, k=0.0001):
     from_n = len(counts)
+    counts = counts.sum() * k
     for i in range(from_n):
-        counts_sum = counts[i].sum()
-        if counts_sum > 0:
-            counts[i] += counts_sum * k
-            counts[i] /= counts[i].sum()
+        counts[i] /= counts[i].sum()
     return counts
 
 
