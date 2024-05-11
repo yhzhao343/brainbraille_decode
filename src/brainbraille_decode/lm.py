@@ -11,12 +11,16 @@ letter_label = " abcdefghijklmnopqrstuvwxyz"
 
 
 @jit(
-    f8[:, ::1](f8[:, ::1], f8),
+    [
+        f8[:, ::1](f8[:, ::1], nb.types.Omitted(1.0)),
+        f8[:, ::1](f8[:, ::1], f8),
+    ],
     nopython=True,
     fastmath=True,
     parallel=False,
     cache=True,
 )
+<<<<<<< HEAD
 def _add_k_percent_smoothing(counts, k=0.0001):
     from_n = len(counts)
     counts = counts.sum() * k
@@ -34,32 +38,30 @@ def add_k_percent_smoothing(counts, k=0.01):
     if not is_2d:
         counts = counts[0]
     return counts
+=======
+def add_k_smoothing_2d(counts, k=1.0):
+    out = counts + k
+    out /= out.sum(axis=1)[:, np.newaxis]
+    return out
+>>>>>>> 389e863 (add more types for add_k_smoothing_1d)
 
 
 @jit(
-    f8[:, ::1](f8[:, ::1], f8),
+    [
+        f8[::1](f8[::1], nb.types.Omitted(1.0)),
+        f8[::1](f8[::1], f8),
+        f8[:, ::1](f8[:, ::1], nb.types.Omitted(1.0)),
+        f8[:, ::1](f8[:, ::1], f8),
+    ],
     nopython=True,
     fastmath=True,
     parallel=False,
     cache=True,
 )
-def _add_k_smoothing(counts, k):
-    counts_plus_k = counts + k
-    from_n = len(counts_plus_k)
-    for i in range(from_n):
-        counts_plus_k[i] /= counts_plus_k[i].sum()
-    return counts_plus_k
-
-
-def add_k_smoothing(counts, k=1.0):
-    counts = np.array(counts, dtype=np.float64)
-    is_2d = len(counts.shape) == 2
-    if not is_2d:
-        counts = counts[np.newaxis, :]
-    counts = _add_k_smoothing(counts, k)
-    if not is_2d:
-        counts = counts[0]
-    return counts
+def add_k_smoothing_1d(counts, k=1.0):
+    out = counts + k
+    out /= out.sum()
+    return out
 
 
 def add_k(k, counts, dtype=np.float64):
@@ -263,7 +265,8 @@ def _forward_decode_from_hidden_state_proba(
 
 
 def forward_decode_from_letter_proba_for_all_runs(
-    smoothing,
+    smoothing_1d,
+    smoothing_2d,
     uni_count,
     uni_k,
     bi_count,
@@ -273,9 +276,9 @@ def forward_decode_from_letter_proba_for_all_runs(
     letter_proba_per_run,
     out_label,
 ):
-    uni_proba = smoothing(uni_count, uni_k)
-    bi_proba = smoothing(bi_count, bi_k)
-    initial_proba = smoothing(initial_proba, ip_k)
+    uni_proba = smoothing_1d(uni_count, uni_k)
+    bi_proba = smoothing_2d(bi_count, bi_k)
+    initial_proba = smoothing_1d(initial_proba, ip_k)
     forward_decode_letter_index_per_run = [
         forward_decode_from_hidden_state_proba(
             run_i, uni_proba, bi_proba, initial_proba
@@ -481,7 +484,8 @@ def viterbi_decode_from_hidden_state_proba(
 
 
 def viterbi_decode_from_letter_proba_for_all_runs(
-    smoothing,
+    smoothing_1d,
+    smoothing_2d,
     uni_count,
     uni_k,
     bi_count,
@@ -491,9 +495,9 @@ def viterbi_decode_from_letter_proba_for_all_runs(
     letter_proba_per_run,
     out_label,
 ):
-    uni_proba = smoothing(uni_count, uni_k)
-    bi_proba = smoothing(bi_count, bi_k)
-    initial_proba = smoothing(initial_proba, ip_k)
+    uni_proba = smoothing_1d(uni_count, uni_k)
+    bi_proba = smoothing_2d(bi_count, bi_k)
+    initial_proba = smoothing_1d(initial_proba, ip_k)
     viterbi_decode_letter_index_per_run = [
         viterbi_decode_from_hidden_state_proba(
             run_i, uni_proba, bi_proba, initial_proba

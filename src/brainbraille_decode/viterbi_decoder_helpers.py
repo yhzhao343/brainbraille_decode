@@ -962,7 +962,8 @@ def tune_decode_smoothing(
     initial_proba,
     letter_label,
     decoder,
-    smoothing,
+    smoothing_1d,
+    smoothing_2d,
     param_grid,
     param_category_keys,
     log_args_keys,
@@ -975,7 +976,8 @@ def tune_decode_smoothing(
 ):
     func_to_max = partial(
         decode_acc_score,
-        smoothing=smoothing,
+        smoothing_1d=smoothing_1d,
+        smoothing_2d=smoothing_2d,
         train_x=train_x,
         train_y=train_y,
         uni_count=uni_count,
@@ -999,7 +1001,8 @@ def tune_decode_smoothing(
     decoder = partial(
         decoder,
         **tune_clf_results[0],
-        smoothing=smoothing,
+        smoothing_1d=smoothing_1d,
+        smoothing_2d=smoothing_2d,
         uni_count=uni_count,
         bi_count=bigram_count,
         initial_proba=initial_proba,
@@ -1011,7 +1014,8 @@ def tune_decode_smoothing(
 def decode_acc_score(
     train_x,
     train_y,
-    smoothing,
+    smoothing_1d,
+    smoothing_2d,
     uni_count,
     bigram_count,
     initial_proba,
@@ -1022,7 +1026,8 @@ def decode_acc_score(
     ip_k,
 ):
     pred_y = decoder(
-        smoothing,
+        smoothing_1d,
+        smoothing_2d,
         uni_count,
         uni_k,
         bigram_count,
