@@ -20,30 +20,10 @@ letter_label = " abcdefghijklmnopqrstuvwxyz"
     parallel=False,
     cache=True,
 )
-<<<<<<< HEAD
-def _add_k_percent_smoothing(counts, k=0.0001):
-    from_n = len(counts)
-    counts = counts.sum() * k
-    for i in range(from_n):
-        counts[i] /= counts[i].sum()
-    return counts
-
-
-def add_k_percent_smoothing(counts, k=0.01):
-    counts = np.array(counts, dtype=np.float64)
-    is_2d = len(counts.shape) == 2
-    if not is_2d:
-        counts = counts[np.newaxis, :]
-    counts = _add_k_percent_smoothing(counts, k)
-    if not is_2d:
-        counts = counts[0]
-    return counts
-=======
 def add_k_smoothing_2d(counts, k=1.0):
     out = counts + k
     out /= out.sum(axis=1)[:, np.newaxis]
     return out
->>>>>>> 389e863 (add more types for add_k_smoothing_1d)
 
 
 @jit(
