@@ -24,6 +24,36 @@ def state_proba_to_letter_proba(state_proba, LETTERS_TO_DOT_array):
 
 
 @jit(
+    f8[:, ::1](i4[::1], f8[:, ::1], i4[:, ::1], i4[::1]),
+    nopython=True,
+    fastmath=True,
+    parallel=False,
+    cache=True,
+)
+def get_symbol_node_trans_proba(
+    symbol_nodes_spelling_ndx,
+    trans_proba,
+    symbol_nodes_out_spelling_matrix,
+    symbol_nodes_out_len,
+):
+    num_nodes = len(symbol_nodes_spelling_ndx)
+    out = np.zeros((num_nodes, num_nodes), dtype=np.float64)
+    symbol_node_len = np.empty(num_nodes, np.int32)
+    for i in range(num_nodes):
+        symbol_node_len[i] = symbol_nodes_out_len[symbol_nodes_spelling_ndx[i]]
+    valid_symbol_node_indx = np.arange(num_nodes)[symbol_node_len > 0]
+    for from_i in valid_symbol_node_indx:
+        from_node_i = symbol_nodes_spelling_ndx[from_i]
+        from_i_len = symbol_node_len[from_node_i]
+        from_i_end_l = symbol_nodes_out_spelling_matrix[from_node_i, from_i_len - 1]
+        for to_i in valid_symbol_node_indx:
+            to_node_i = symbol_nodes_spelling_ndx[to_i]
+            to_i_start_l = symbol_nodes_out_spelling_matrix[to_node_i, 0]
+            out[from_node_i, to_i_start_l] = trans_proba[from_i_end_l, to_i_start_l]
+    return out
+
+
+@jit(
     nb.types.Tuple((f8[:, ::1], i4[::1]))(f8[:, ::1], i4[::1], f8[:, ::1], b1[:, ::1]),
     nopython=True,
     fastmath=True,
