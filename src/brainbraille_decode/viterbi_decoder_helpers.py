@@ -13,14 +13,27 @@ from copy import deepcopy
 from .lm import letter_label
 
 
+@jit(
+    nb.types.Tuple((f8[:, ::1], i4[::1]))(f8[:, ::1], b1[:, ::1]),
+    nopython=True,
+    fastmath=True,
+    parallel=False,
+    cache=True,
+)
 def state_proba_to_letter_proba(state_proba, LETTERS_TO_DOT_array):
     num_t, num_state = len(state_proba), len(LETTERS_TO_DOT_array)
-    state_proba = np.ascontiguousarray(state_proba, dtype=np.float64)
     naive_state_proba = np.empty((num_t, num_state), dtype=np.float64)
     naive_state_ind = np.empty(num_t, dtype=np.int32)
-    return _state_proba_to_letter_proba(
-        naive_state_proba, naive_state_ind, state_proba, LETTERS_TO_DOT_array
-    )
+    for time_i in prange(len(state_proba)):
+        state_proba_i = state_proba[time_i]
+        for letter_i in range(len(LETTERS_TO_DOT_array)):
+            letter_mask = LETTERS_TO_DOT_array[letter_i]
+            naive_state_proba[time_i, letter_i] = np.prod(
+                state_proba_i[letter_mask]
+            ) * np.prod(1 - state_proba_i[~letter_mask])
+        naive_state_proba[time_i, :] /= naive_state_proba[time_i, :].sum()
+        naive_state_ind[time_i] = np.argmax(naive_state_proba[time_i, :])
+    return naive_state_proba, naive_state_ind
 
 
 @jit(
@@ -51,28 +64,6 @@ def get_symbol_node_trans_proba(
             to_i_start_l = symbol_nodes_out_spelling_matrix[to_node_i, 0]
             out[from_node_i, to_i_start_l] = trans_proba[from_i_end_l, to_i_start_l]
     return out
-
-
-@jit(
-    nb.types.Tuple((f8[:, ::1], i4[::1]))(f8[:, ::1], i4[::1], f8[:, ::1], b1[:, ::1]),
-    nopython=True,
-    fastmath=True,
-    parallel=False,
-    cache=True,
-)
-def _state_proba_to_letter_proba(
-    naive_state_proba, naive_state_ind, state_proba, LETTERS_TO_DOT_array
-):
-    for time_i in prange(len(state_proba)):
-        state_proba_i = state_proba[time_i]
-        for letter_i in range(len(LETTERS_TO_DOT_array)):
-            letter_mask = LETTERS_TO_DOT_array[letter_i]
-            naive_state_proba[time_i, letter_i] = np.prod(
-                state_proba_i[letter_mask]
-            ) * np.prod(1 - state_proba_i[~letter_mask])
-        naive_state_proba[time_i, :] /= naive_state_proba[time_i, :].sum()
-        naive_state_ind[time_i] = np.argmax(naive_state_proba[time_i, :])
-    return naive_state_proba, naive_state_ind
 
 
 def get_run_start_end_index(X):
@@ -1100,7 +1091,7 @@ def symbol_info_preprocess(
     symbol_node_trans_matrix = np.zeros(
         (num_symbol_nodes, num_symbol_nodes), dtype=np.bool_
     )
-    symbol_node_trans = np.zeros((num_symbol_nodes, num_symbol_nodes), dtype=np.float64)
+    symbol_node_trans = np.zeros((num_symbol_nodes, num_symbol_nodes), dtype=np.bool_)
 
     end_node_index = num_symbol_nodes - 2
 
@@ -1121,35 +1112,19 @@ def symbol_info_preprocess(
     )
 
 
-def get_log_symbol_node_spelling_trans(
-    log_transition_proba, symbol_nodes_out_spelling_matrix, symbol_nodes_out_len
-):
-    """get the word internal letter transition probability"""
-    symbol_node_out_trans_log_proba = np.zeros(
-        len(symbol_nodes_out_len), dtype=np.float64
-    )
-    symbol_node_out_trans_log_proba = _get_log_symbol_node_spelling_trans(
-        log_transition_proba,
-        symbol_nodes_out_spelling_matrix,
-        symbol_nodes_out_len,
-        symbol_node_out_trans_log_proba,
-    )
-    return symbol_node_out_trans_log_proba
-
-
 @jit(
-    f8[::1](f8[:, ::1], i4[:, ::1], i4[::1], f8[::1]),
+    f8[::1](f8[:, ::1], i4[:, ::1], i4[::1]),
     nopython=True,
     parallel=False,
     fastmath=True,
     cache=True,
 )
-def _get_log_symbol_node_spelling_trans(
-    log_transition_proba,
-    symbol_nodes_out_spelling_matrix,
-    symbol_nodes_out_len,
-    symbol_node_out_trans_log_proba,
+def get_log_symbol_node_spelling_trans(
+    log_transition_proba, symbol_nodes_out_spelling_matrix, symbol_nodes_out_len
 ):
+    symbol_node_out_trans_log_proba = np.zeros(
+        len(symbol_nodes_out_len), dtype=np.float64
+    )
     num_symbol_node_out = len(symbol_nodes_out_len)
     for i in range(num_symbol_node_out):
         word_len = symbol_nodes_out_len[i]
@@ -1162,7 +1137,7 @@ def _get_log_symbol_node_spelling_trans(
 
 
 @jit(
-    f8[:, ::1](i4[::1], i4[:, ::1], i4[::1], b1[:, ::1], f8[:, ::1], i4, i4),
+    b1[:, ::1](i4[::1], i4[:, ::1], i4[::1], b1[:, ::1], b1[:, ::1], i4, i4),
     nopython=True,
     parallel=False,
     fastmath=True,
@@ -1198,6 +1173,36 @@ def get_symbol_node_trans(
         for j in range(num_symbol_nodes):
             symbol_node_trans_proba[i][j] = symbol_node_trans_matrix[i][j]
     return symbol_node_trans_proba
+
+
+@jit(
+    f8[::1](b1[::1], i8[:, ::1], i4[::1], i4[:, ::1], i4[::1], i4),
+    nopython=True,
+    fastmath=True,
+    parallel=False,
+    cache=True,
+)
+def get_init_proba_for_grammar_decode(
+    dummy_start_trans_to_nodes,
+    trans_proba,
+    symbol_nodes_spelling_ndx,
+    symbol_nodes_out_spelling_matrix,
+    symbol_nodes_out_len,
+    initial_state,
+):
+    num_nodes = len(dummy_start_trans_to_nodes)
+    symbol_node_len = np.empty(num_nodes, np.int32)
+    for i in range(num_nodes):
+        symbol_node_len[i] = symbol_nodes_out_len[symbol_nodes_spelling_ndx[i]]
+    valid_symbol_node_indx = np.arange(num_nodes)[
+        (symbol_node_len > 0) & dummy_start_trans_to_nodes
+    ]
+    init_proba = np.zeros(num_nodes, dtype=np.float64)
+    for to_i in valid_symbol_node_indx:
+        init_proba[to_i] = trans_proba[initial_state][
+            symbol_nodes_out_spelling_matrix[symbol_nodes_spelling_ndx[to_i]][0]
+        ]
+    return init_proba
 
 
 # def get_symbol_node_trans_log_proba(

@@ -53,13 +53,14 @@ def add_k_gen(k, dtype=np.float64):
 
 
 @jit(
-    f8[:, ::1](f8[:, ::1], f8[:, ::1], f8[::1]),
+    f8[:, ::1](f8[:, ::1], f8[::1]),
     nopython=True,
     fastmath=True,
     parallel=False,
     cache=True,
 )
-def _hidden_state_proba_to_emission_proba(emission_proba, hidden_state_proba, prior):
+def hidden_state_proba_to_emission_proba(hidden_state_proba, prior):
+    emission_proba = np.empty_like(hidden_state_proba)
     min_prior = np.min(prior)
     prior = prior / min_prior
     for time_i in prange(len(hidden_state_proba)):
@@ -67,35 +68,20 @@ def _hidden_state_proba_to_emission_proba(emission_proba, hidden_state_proba, pr
     return emission_proba
 
 
-def hidden_state_proba_to_emission_proba(hidden_state_proba, prior):
-    emission_proba = np.empty_like(hidden_state_proba)
-    return _hidden_state_proba_to_emission_proba(
-        emission_proba, hidden_state_proba, prior
-    )
-
-
 @jit(
-    f8[:, ::1](f8[:, ::1], f8[:, ::1], f8[::1]),
+    f8[:, ::1](f8[:, ::1], f8[::1]),
     nopython=True,
     fastmath=True,
     parallel=False,
     cache=True,
 )
-def _log_hidden_state_proba_to_log_emission_proba(
-    log_emission_proba, log_hidden_state_proba, log_prior
-):
+def log_hidden_state_proba_to_log_emission_proba(log_hidden_state_proba, log_prior):
+    log_emission_proba = np.empty_like(log_hidden_state_proba)
     min_log_prior = np.min(log_prior)
     log_prior = log_prior - min_log_prior
     for time_i in prange(len(log_hidden_state_proba)):
         log_emission_proba[time_i] = log_hidden_state_proba[time_i] - log_prior
     return log_emission_proba
-
-
-def log_hidden_state_proba_to_log_emission_proba(log_hidden_state_proba, log_prior):
-    log_emission_proba = np.empty_like(log_hidden_state_proba)
-    return _log_hidden_state_proba_to_log_emission_proba(
-        log_emission_proba, log_hidden_state_proba, log_prior
-    )
 
 
 def counts_to_proba(counts, smoothing=add_k_gen(1, np.float64)):
@@ -199,15 +185,19 @@ def get_srilm_ngram(content, n=2, SRILM_PATH=None, **kwargs):
 
 
 @jit(
-    i4[::1](f8[:, ::1], f8[:, ::1], f8[:, ::1], f8[:, ::1], i4[::1]),
+    i4[::1](f8[:, ::1], f8[:, ::1], f8[::1]),
     nopython=True,
     fastmath=True,
     parallel=False,
     cache=True,
 )
-def _forward_decode(
-    emission_proba, transition_proba, prev_trellis_val, viterbi_trellis, best_state_ind
-):
+def forward_decode(emission_proba, transition_proba, initial_proba):
+    num_t, num_state = emission_proba.shape
+    viterbi_trellis = np.empty((num_t, num_state), dtype=np.float64)
+    initial_proba = initial_proba[np.newaxis, :]
+    prev_trellis_val = np.copy(initial_proba)
+    best_state_ind = np.empty(num_t, dtype=np.int32)
+
     for time_i in range(len(emission_proba)):
         viterbi_trellis[time_i, :] = emission_proba[time_i] * (
             prev_trellis_val @ transition_proba
@@ -216,32 +206,6 @@ def _forward_decode(
         prev_trellis_val[0] = viterbi_trellis[time_i, :]
         best_state_ind[time_i] = np.argmax(viterbi_trellis[time_i, :])
     return best_state_ind
-
-
-@jit(
-    i4[::1](
-        f8[:, ::1], f8[::1], f8[:, ::1], f8[:, ::1], f8[:, ::1], f8[:, ::1], i4[::1]
-    ),
-    nopython=True,
-    fastmath=True,
-    parallel=False,
-    cache=True,
-)
-def _forward_decode_from_hidden_state_proba(
-    hidden_state_proba,
-    uni_proba,
-    bi_proba,
-    prev_trellis_val,
-    emission_proba,
-    viterbi_trellis,
-    best_state_ind,
-):
-    emission_proba = _hidden_state_proba_to_emission_proba(
-        emission_proba, hidden_state_proba, uni_proba
-    )
-    return _forward_decode(
-        emission_proba, bi_proba, prev_trellis_val, viterbi_trellis, best_state_ind
-    )
 
 
 def forward_decode_from_letter_proba_for_all_runs(
@@ -271,73 +235,34 @@ def forward_decode_from_letter_proba_for_all_runs(
     ]
 
 
-def forward_decode(emission_proba, transition_proba, initial_proba=None):
-    emission_proba = np.array(emission_proba, dtype=np.float64)
-    transition_proba = np.array(transition_proba, dtype=np.float64)
-
-    num_t, num_state = emission_proba.shape
-    viterbi_trellis = np.empty((num_t, num_state), dtype=np.float64)
-    if initial_proba is None:
-        initial_proba = np.zeros((1, num_state), dtype=np.float64)
-    else:
-        initial_proba = np.array(initial_proba, dtype=np.float64)
-    if len(initial_proba.shape) == 1:
-        initial_proba = initial_proba[np.newaxis, :]
-    prev_trellis_val = np.copy(initial_proba)
-    best_state_ind = np.empty(num_t, dtype=np.int32)
-    best_state_ind = _forward_decode(
-        emission_proba,
-        transition_proba,
-        prev_trellis_val,
-        viterbi_trellis,
-        best_state_ind,
-    )
-    return best_state_ind
-
-
-def forward_decode_from_hidden_state_proba(
-    hidden_state_proba, uni_proba, bi_proba, init_proba
-):
-    uni_proba = np.array(uni_proba, dtype=np.float64)
-    bi_proba = np.array(bi_proba, dtype=np.float64)
-    init_proba = np.array(init_proba, dtype=np.float64)
-    if len(init_proba.shape) == 1:
-        init_proba = init_proba[np.newaxis, :]
-    prev_trellis_val = np.copy(init_proba)
-    hidden_state_proba = np.array(hidden_state_proba, dtype=np.float64)
-    emission_proba = np.empty_like(hidden_state_proba)
-    num_t, num_state = emission_proba.shape
-    viterbi_trellis = np.empty((num_t, num_state), dtype=np.float64)
-    best_state_ind = np.empty(num_t, dtype=np.int32)
-    return _forward_decode_from_hidden_state_proba(
-        hidden_state_proba,
-        uni_proba,
-        bi_proba,
-        prev_trellis_val,
-        emission_proba,
-        viterbi_trellis,
-        best_state_ind,
-    )
-
-
 @jit(
-    i4[::1](
-        f8[:, ::1], f8[:, ::1], f8[:, ::1], f8[::1], f8[:, ::1], i4[:, ::1], i4[::1]
-    ),
+    i4[::1](f8[:, ::1], f8[::1], f8[:, ::1], f8[::1]),
     nopython=True,
     fastmath=True,
     parallel=False,
     cache=True,
 )
-def _viterbi_decode(
-    log_emission_proba,
-    log_transition_proba,
-    log_predict_proba,
-    prev_trellis_val,
-    viterbi_trellis,
-    prev_table,
-    best_state_ind,
+def forward_decode_from_hidden_state_proba(
+    hidden_state_proba, uni_proba, bi_proba, init_proba
 ):
+    emission_proba = hidden_state_proba_to_emission_proba(hidden_state_proba, uni_proba)
+    return forward_decode(emission_proba, bi_proba, init_proba)
+
+
+@jit(
+    i4[::1](f8[:, ::1], f8[:, ::1], f8[::1]),
+    nopython=True,
+    fastmath=True,
+    parallel=False,
+    cache=True,
+)
+def viterbi_decode(log_emission_proba, log_transition_proba, initial_log_proba):
+    log_predict_proba = np.empty_like(log_transition_proba)
+    num_t, num_state = log_emission_proba.shape
+    viterbi_trellis = np.empty((num_t, num_state), dtype=np.float64)
+    prev_table = np.zeros((num_t, num_state), dtype=np.int32)
+    prev_trellis_val = np.copy(initial_log_proba)
+    best_state_ind = np.empty(num_t, dtype=np.int32)
     viterbi_trellis[:, :] = -np.inf
     num_t, num_state = log_emission_proba.shape
     for time_i in range(num_t):
@@ -361,105 +286,35 @@ def _viterbi_decode(
     return best_state_ind
 
 
-def viterbi_decode(log_emission_proba, log_transition_proba, initial_log_proba=None):
-    log_emission_proba = np.array(log_emission_proba, dtype=np.float64)
-    log_transition_proba = np.array(log_transition_proba, dtype=np.float64)
-    log_predict_proba = np.empty_like(log_transition_proba)
-    num_t, num_state = log_emission_proba.shape
-    viterbi_trellis = np.empty((num_t, num_state), dtype=np.float64)
-    prev_table = np.zeros((num_t, num_state), dtype=np.int32)
-    if initial_log_proba is None:
-        initial_log_proba = np.zeros((num_state, 1), dtype=np.float64)
-    else:
-        initial_log_proba = np.array(initial_log_proba, dtype=np.float64)
-    if len(initial_log_proba.shape) == 2:
-        initial_log_proba = initial_log_proba.squeeze()
-    prev_trellis_val = np.copy(initial_log_proba)
-    best_state_ind = np.empty(num_t, dtype=np.int32)
-    best_state_ind = _viterbi_decode(
-        log_emission_proba,
-        log_transition_proba,
-        log_predict_proba,
-        prev_trellis_val,
-        viterbi_trellis,
-        prev_table,
-        best_state_ind,
-    )
-    return best_state_ind
-
-
 @jit(
     i4[::1](
         f8[:, ::1],
         f8[::1],
         f8[:, ::1],
-        f8[:, ::1],
         f8[::1],
-        f8[:, ::1],
-        f8[:, ::1],
-        i4[:, ::1],
-        i4[::1],
     ),
     nopython=True,
     fastmath=True,
     parallel=False,
     cache=True,
 )
-def _viterbi_decode_from_hidden_state_proba(
+def viterbi_decode_from_hidden_state_proba(
     hidden_state_proba,
     uni_proba,
     bi_proba,
-    log_predict_proba,
     prev_trellis_val,
-    log_emission_proba,
-    viterbi_trellis,
-    prev_table,
-    best_state_ind,
 ):
     bi_proba = np.log1p(bi_proba)
     uni_proba = np.log1p(uni_proba)
     hidden_state_proba = np.log1p(hidden_state_proba)
     prev_trellis_val = np.log1p(prev_trellis_val)
-    log_emission_proba = _log_hidden_state_proba_to_log_emission_proba(
-        log_emission_proba, hidden_state_proba, uni_proba
+    log_emission_proba = log_hidden_state_proba_to_log_emission_proba(
+        hidden_state_proba, uni_proba
     )
-    return _viterbi_decode(
+    return viterbi_decode(
         log_emission_proba,
         bi_proba,
-        log_predict_proba,
         prev_trellis_val,
-        viterbi_trellis,
-        prev_table,
-        best_state_ind,
-    )
-
-
-def viterbi_decode_from_hidden_state_proba(
-    hidden_state_proba, uni_proba, bi_proba, init_proba
-):
-    uni_proba = np.array(uni_proba, dtype=np.float64)
-    bi_proba = np.array(bi_proba, dtype=np.float64)
-    log_predict_proba = np.empty_like(bi_proba)
-    if len(init_proba.shape) == 2:
-        init_proba = init_proba.squeeze()
-    init_proba = np.array(init_proba, dtype=np.float64)
-    prev_trellis_val = np.copy(init_proba)
-    hidden_state_proba = np.array(hidden_state_proba, dtype=np.float64)
-    log_emission_proba = np.empty_like(hidden_state_proba)
-    num_t, num_state = log_emission_proba.shape
-    viterbi_trellis = np.empty((num_t, num_state), dtype=np.float64)
-    prev_table = np.zeros((num_t, num_state), dtype=np.int32)
-    best_state_ind = np.empty(num_t, dtype=np.int32)
-    return _viterbi_decode_from_hidden_state_proba(
-        hidden_state_proba,
-        uni_proba,
-        bi_proba,
-        log_predict_proba,
-        prev_trellis_val,
-        log_emission_proba,
-        viterbi_trellis,
-        prev_table,
-        best_state_ind,
     )
 
 
@@ -490,6 +345,13 @@ def viterbi_decode_from_letter_proba_for_all_runs(
     ]
 
 
+@jit(
+    f8[:, ::1](f8[:, ::1], f8[::1], i4[:, ::1], i4[::1]),
+    nopython=True,
+    fastmath=True,
+    parallel=False,
+    cache=True,
+)
 def get_log_symbol_out_emission(
     log_emission_proba,
     symbol_node_out_trans_log_proba,
@@ -500,31 +362,6 @@ def get_log_symbol_out_emission(
     num_symbol_node_out = len(symbol_nodes_out_len)
     num_t = len(log_emission_proba)
     symbol_node_emi_proba = np.zeros((num_t, num_symbol_node_out), dtype=np.float64)
-    symbol_node_emi_proba = _get_log_symbol_out_emission(
-        symbol_node_emi_proba,
-        log_emission_proba,
-        symbol_node_out_trans_log_proba,
-        symbol_nodes_out_spelling_matrix,
-        symbol_nodes_out_len,
-    )
-    return symbol_node_emi_proba
-
-
-@jit(
-    f8[:, ::1](f8[:, ::1], f8[:, ::1], f8[::1], i4[:, ::1], i4[::1]),
-    nopython=True,
-    fastmath=True,
-    parallel=False,
-    cache=True,
-)
-def _get_log_symbol_out_emission(
-    symbol_node_emi_proba,
-    log_emission_proba,
-    symbol_node_out_trans_log_proba,
-    symbol_nodes_out_spelling_matrix,
-    symbol_nodes_out_len,
-):
-    num_t, num_symbol_node_out = symbol_node_emi_proba.shape
     for node_out_i in range(num_symbol_node_out):
         node_len = symbol_nodes_out_len[node_out_i]
         if node_len > 0:
