@@ -1,6 +1,6 @@
 import numpy as np
 import numba as nb
-from numba import jit, prange, f8, i4, i8, b1
+from numba import jit, prange, f8, i4, u4, i8, b1
 import sys
 import numba as nb
 from .preprocessing import flatten_fold, flatten_feature
@@ -14,7 +14,7 @@ from .lm import letter_label
 
 
 @jit(
-    nb.types.Tuple((f8[:, ::1], i4[::1]))(f8[:, ::1], b1[:, ::1]),
+    nb.types.Tuple((f8[:, ::1], u4[::1]))(f8[:, ::1], b1[:, ::1]),
     nopython=True,
     fastmath=True,
     parallel=False,
@@ -23,7 +23,7 @@ from .lm import letter_label
 def state_proba_to_letter_proba(state_proba, LETTERS_TO_DOT_array):
     num_t, num_state = len(state_proba), len(LETTERS_TO_DOT_array)
     naive_state_proba = np.empty((num_t, num_state), dtype=np.float64)
-    naive_state_ind = np.empty(num_t, dtype=np.int32)
+    naive_state_ind = np.empty(num_t, dtype=np.uint32)
     for time_i in prange(len(state_proba)):
         state_proba_i = state_proba[time_i]
         for letter_i in range(len(LETTERS_TO_DOT_array)):
@@ -37,7 +37,7 @@ def state_proba_to_letter_proba(state_proba, LETTERS_TO_DOT_array):
 
 
 @jit(
-    f8[:, ::1](i4[::1], f8[:, ::1], i4[:, ::1], i4[::1]),
+    f8[:, ::1](u4[::1], b1[:, ::1], f8[:, ::1], u4[:, ::1], u4[::1], u4),
     nopython=True,
     fastmath=True,
     parallel=False,
@@ -45,24 +45,30 @@ def state_proba_to_letter_proba(state_proba, LETTERS_TO_DOT_array):
 )
 def get_symbol_node_trans_proba(
     symbol_nodes_spelling_ndx,
+    symbol_node_trans,
     trans_proba,
     symbol_nodes_out_spelling_matrix,
     symbol_nodes_out_len,
+    end_node_index,
 ):
     num_nodes = len(symbol_nodes_spelling_ndx)
     out = np.zeros((num_nodes, num_nodes), dtype=np.float64)
-    symbol_node_len = np.empty(num_nodes, np.int32)
+    symbol_node_len = np.empty(num_nodes, np.uint32)
     for i in range(num_nodes):
         symbol_node_len[i] = symbol_nodes_out_len[symbol_nodes_spelling_ndx[i]]
     valid_symbol_node_indx = np.arange(num_nodes)[symbol_node_len > 0]
+
     for from_i in valid_symbol_node_indx:
         from_node_i = symbol_nodes_spelling_ndx[from_i]
         from_i_len = symbol_node_len[from_node_i]
         from_i_end_l = symbol_nodes_out_spelling_matrix[from_node_i, from_i_len - 1]
         for to_i in valid_symbol_node_indx:
             to_node_i = symbol_nodes_spelling_ndx[to_i]
-            to_i_start_l = symbol_nodes_out_spelling_matrix[to_node_i, 0]
-            out[from_node_i, to_i_start_l] = trans_proba[from_i_end_l, to_i_start_l]
+            if symbol_node_trans[from_i, to_i]:
+                to_i_start_l = symbol_nodes_out_spelling_matrix[to_node_i, 0]
+                out[from_node_i, to_i_start_l] = trans_proba[from_i_end_l, to_i_start_l]
+        if symbol_node_trans[from_i, end_node_index]:
+            out[from_i, end_node_index] = 1.0
     return out
 
 
@@ -174,7 +180,7 @@ def resolve_null_helper(
 
 
 @jit(
-    b1[:](b1[:], b1[:], b1[:, :], i8),
+    b1[:](b1[:], b1[:], b1[:, :], u4),
     nopython=True,
     parallel=False,
     fastmath=True,
@@ -1065,16 +1071,17 @@ def decode_acc_score(
 def symbol_info_preprocess(
     letter_label, symbol_nodes, symbol_node_trans_pair, node_output_letter
 ):
-    symbol_node_trans_pair = np.array(symbol_node_trans_pair, dtype=np.int32)
+    # TODO: add checks to throw error when there are null node besides end_node_ndx still exist
+    symbol_node_trans_pair = np.array(symbol_node_trans_pair, dtype=np.uint32)
     letter_2_ind = {l: i for i, l in enumerate(letter_label)}
     symbol_node_out_list, symbol_node_out_spelling = zip(*node_output_letter.items())
     num_symbol_node_out = len(symbol_node_out_list)
     symbol_nodes_out_len = np.array(
-        [len(spelling) for spelling in symbol_node_out_spelling], dtype=np.int32
+        [len(spelling) for spelling in symbol_node_out_spelling], dtype=np.uint32
     )
     max_symbol_node_out_len = np.max(symbol_nodes_out_len)
     symbol_nodes_out_spelling_matrix = np.zeros(
-        (num_symbol_node_out, max_symbol_node_out_len), dtype=np.int32
+        (num_symbol_node_out, max_symbol_node_out_len), dtype=np.uint32
     )
     for node_i, spelling in enumerate(symbol_node_out_spelling):
         for letter_i, letter in enumerate(spelling):
@@ -1085,7 +1092,7 @@ def symbol_info_preprocess(
     }
     symbol_nodes_spelling_ndx = np.array(
         [symbol_node_out_to_ndx[symbol_node] for symbol_node in symbol_nodes],
-        dtype=np.int32,
+        dtype=np.uint32,
     )
     num_symbol_nodes = len(symbol_nodes)
     symbol_node_trans_matrix = np.zeros(
@@ -1093,6 +1100,7 @@ def symbol_info_preprocess(
     )
     symbol_node_trans = np.zeros((num_symbol_nodes, num_symbol_nodes), dtype=np.bool_)
 
+    dummy_start_node_i = num_symbol_nodes - 1
     end_node_index = num_symbol_nodes - 2
 
     symbol_node_trans = get_symbol_node_trans(
@@ -1109,11 +1117,13 @@ def symbol_info_preprocess(
         symbol_nodes_spelling_ndx,
         symbol_nodes_out_spelling_matrix,
         symbol_nodes_out_len,
+        dummy_start_node_i,
+        end_node_index,
     )
 
 
 @jit(
-    f8[::1](f8[:, ::1], i4[:, ::1], i4[::1]),
+    f8[::1](f8[:, ::1], u4[:, ::1], u4[::1]),
     nopython=True,
     parallel=False,
     fastmath=True,
@@ -1137,7 +1147,7 @@ def get_log_symbol_node_spelling_trans(
 
 
 @jit(
-    b1[:, ::1](i4[::1], i4[:, ::1], i4[::1], b1[:, ::1], b1[:, ::1], i4, i4),
+    b1[:, ::1](u4[::1], u4[:, ::1], u4[::1], b1[:, ::1], b1[:, ::1], i4, i4),
     nopython=True,
     parallel=False,
     fastmath=True,
@@ -1176,7 +1186,25 @@ def get_symbol_node_trans(
 
 
 @jit(
-    f8[::1](b1[::1], i8[:, ::1], i4[::1], i4[:, ::1], i4[::1], i4),
+    f8(f8[:, ::1], f8[:, ::1], u4[::1], u4),
+    nopython=True,
+    fastmath=True,
+    parallel=False,
+    cache=True,
+)
+def joint_proba_of_hidden_state_sequence(
+    log_emi_proba, log_trans_proba, hidden_state_ind, offset
+):
+    log_joint_proba = 0
+    for i, letter in enumerate(hidden_state_ind):
+        log_joint_proba += log_emi_proba[offset + i][letter]
+    for i in range(len(hidden_state_ind) - 1):
+        log_joint_proba += log_trans_proba[hidden_state_ind[i]][hidden_state_ind[i + 1]]
+    return log_joint_proba
+
+
+@jit(
+    f8[::1](b1[::1], f8[:, ::1], u4[::1], u4[:, ::1], u4[::1], u4),
     nopython=True,
     fastmath=True,
     parallel=False,
@@ -1191,7 +1219,7 @@ def get_init_proba_for_grammar_decode(
     initial_state,
 ):
     num_nodes = len(dummy_start_trans_to_nodes)
-    symbol_node_len = np.empty(num_nodes, np.int32)
+    symbol_node_len = np.empty(num_nodes, np.uint32)
     for i in range(num_nodes):
         symbol_node_len[i] = symbol_nodes_out_len[symbol_nodes_spelling_ndx[i]]
     valid_symbol_node_indx = np.arange(num_nodes)[

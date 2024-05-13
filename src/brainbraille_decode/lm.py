@@ -1,7 +1,7 @@
 import os
 import subprocess
 import numpy as np
-from numba import jit, prange, f4, f8, i4, i8, b1
+from numba import jit, prange, f4, f8, i4, u4, i8, b1
 import numba as nb
 from fastFMRI.file_helpers import write_file, load_file, delete_file_if_exists
 from functools import partial
@@ -185,7 +185,7 @@ def get_srilm_ngram(content, n=2, SRILM_PATH=None, **kwargs):
 
 
 @jit(
-    i4[::1](f8[:, ::1], f8[:, ::1], f8[::1]),
+    u4[::1](f8[:, ::1], f8[:, ::1], f8[::1]),
     nopython=True,
     fastmath=True,
     parallel=False,
@@ -196,7 +196,7 @@ def forward_decode(emission_proba, transition_proba, initial_proba):
     viterbi_trellis = np.empty((num_t, num_state), dtype=np.float64)
     initial_proba = initial_proba[np.newaxis, :]
     prev_trellis_val = np.copy(initial_proba)
-    best_state_ind = np.empty(num_t, dtype=np.int32)
+    best_state_ind = np.empty(num_t, dtype=np.uint32)
 
     for time_i in range(len(emission_proba)):
         viterbi_trellis[time_i, :] = emission_proba[time_i] * (
@@ -236,7 +236,7 @@ def forward_decode_from_letter_proba_for_all_runs(
 
 
 @jit(
-    i4[::1](f8[:, ::1], f8[::1], f8[:, ::1], f8[::1]),
+    u4[::1](f8[:, ::1], f8[::1], f8[:, ::1], f8[::1]),
     nopython=True,
     fastmath=True,
     parallel=False,
@@ -250,7 +250,7 @@ def forward_decode_from_hidden_state_proba(
 
 
 @jit(
-    i4[::1](f8[:, ::1], f8[:, ::1], f8[::1]),
+    u4[::1](f8[:, ::1], f8[:, ::1], f8[::1]),
     nopython=True,
     fastmath=True,
     parallel=False,
@@ -260,9 +260,9 @@ def viterbi_decode(log_emission_proba, log_transition_proba, initial_log_proba):
     log_predict_proba = np.empty_like(log_transition_proba)
     num_t, num_state = log_emission_proba.shape
     viterbi_trellis = np.empty((num_t, num_state), dtype=np.float64)
-    prev_table = np.zeros((num_t, num_state), dtype=np.int32)
+    prev_table = np.zeros((num_t, num_state), dtype=np.uint32)
     prev_trellis_val = np.copy(initial_log_proba)
-    best_state_ind = np.empty(num_t, dtype=np.int32)
+    best_state_ind = np.empty(num_t, dtype=np.uint32)
     viterbi_trellis[:, :] = -np.inf
     num_t, num_state = log_emission_proba.shape
     for time_i in range(num_t):
@@ -287,7 +287,7 @@ def viterbi_decode(log_emission_proba, log_transition_proba, initial_log_proba):
 
 
 @jit(
-    i4[::1](
+    u4[::1](
         f8[:, ::1],
         f8[::1],
         f8[:, ::1],
@@ -346,7 +346,7 @@ def viterbi_decode_from_letter_proba_for_all_runs(
 
 
 @jit(
-    f8[:, ::1](f8[:, ::1], f8[::1], i4[:, ::1], i4[::1]),
+    f8[:, ::1](f8[:, ::1], f8[::1], u4[:, ::1], u4[::1]),
     nopython=True,
     fastmath=True,
     parallel=False,
