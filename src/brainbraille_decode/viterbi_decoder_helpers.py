@@ -201,7 +201,7 @@ def resolve_null(
         )
         num_resolve_counter -= 1
     if num_resolve_counter == 0:
-        error_message = f"Consecutive !Null node chain with length largen than max_null_resolve_count {max_null_resolve_count}"
+        error_message = f"Consecutive !Null node chain with length larger than max_null_resolve_count {max_null_resolve_count}"
         raise ValueError(error_message)
     return curr_nodes_mask
 
@@ -214,13 +214,14 @@ def letter_bigram_viterbi_with_grammar_decode(
     grammar_link_start_end,
     dictionary,
     insert_panelty=0.0,
+    max_null_resolve_count=5,
 ):
     num_entry = len(letter_probs_array)
     letter_to_ind = {letter: i for i, letter in enumerate(letter_list)}
     # number_of_symbols = len(grammar_node_symbols)
     node_letters_spelling = [dictionary[symbol] for symbol in grammar_node_symbols]
 
-    log_prob_table = np.log10(letter_probs_array)
+    log_prob_table = np.log1p(letter_probs_array)
 
     node_letters_len = np.array(
         [len(spell) for spell in node_letters_spelling], dtype=np.int32
@@ -265,6 +266,7 @@ def letter_bigram_viterbi_with_grammar_decode(
         resolve_next_null_cahce,
         reverse_nodes,
         float(insert_panelty),
+        max_null_resolve_count,
     )
 
     letters = [
@@ -368,6 +370,7 @@ def letter_level_bigram_viterbi_decode_numba(
         b1[:, ::1],
         i4[::1],
         f8,
+        u4,
     ),
     nopython=True,
     parallel=False,
@@ -391,11 +394,12 @@ def letter_bigram_viterbi_with_grammar_decode_numba_helper(
     resolve_next_null_cahce,
     reverse_nodes,
     insert_panelty=0.0,
+    max_null_resolve_count=5,
 ):
     num_entry, num_letter = log_prob_table.shape
     num_node = node_letters_ind_spelling_mat.shape[0]
     node_symbol_index_arr = np.arange(num_node)
-    emission_word_log_prob_table[:][:] = MIN_FLOAT
+    emission_word_log_prob_table[:][:] = -np.inf
     prev_word_table[:][:] = num_node
     node_len_is_zero_mask = node_letters_len == 0
     node_letters_ind_first_letter = node_letters_ind_spelling_mat[:, 0]
@@ -423,7 +427,10 @@ def letter_bigram_viterbi_with_grammar_decode_numba_helper(
     resolve_next_null_cahce[:][:] = False
     for i, next_node_mask in enumerate(grammar_node_transition_table):
         resolve_next_null_cahce[i] = resolve_null(
-            next_node_mask, non_end_null_node_mask, grammar_node_transition_table, 3
+            next_node_mask,
+            non_end_null_node_mask,
+            grammar_node_transition_table,
+            max_null_resolve_count,
         )
 
     next_node_indices = node_symbol_index_arr[
@@ -468,7 +475,7 @@ def letter_bigram_viterbi_with_grammar_decode_numba_helper(
         )
 
     for curr_node_end_i in range(0, num_entry):
-        curr_node_mask = emission_word_log_prob_table[:, curr_node_end_i] > MIN_FLOAT
+        curr_node_mask = emission_word_log_prob_table[:, curr_node_end_i] > -np.inf
         if not np.any(curr_node_mask):
             continue
         curr_node_indice = node_symbol_index_arr[curr_node_mask]
