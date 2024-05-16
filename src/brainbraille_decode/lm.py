@@ -12,6 +12,117 @@ letter_label = " abcdefghijklmnopqrstuvwxyz"
 
 @jit(
     [
+        u4[::1](f8[:, ::1], u4[::1], u4[::1], f8[:, ::1], f8[::1], u4, u4, f8),
+        u4[::1](
+            f8[:, ::1],
+            u4[::1],
+            u4[::1],
+            f8[:, ::1],
+            f8[::1],
+            u4,
+            u4,
+            nb.types.Omitted(0.0),
+        ),
+    ],
+    nopython=True,
+    fastmath=True,
+    parallel=False,
+    cache=True,
+)
+def viterbi_decode_with_grammar_1(
+    log_symbol_out_emi_proba,
+    symbol_nodes_spelling_ndx,
+    symbol_nodes_out_len,
+    log_symbol_node_trans_proba,
+    prev_trellis_val,
+    dummy_start_node_i,
+    end_node_i,
+    log_insert_panelty=0.0,
+):
+    (num_t, num_out), num_node = log_symbol_out_emi_proba.shape, len(
+        symbol_nodes_spelling_ndx
+    )
+    trellis = np.empty((num_t, num_node), dtype=np.float64)
+    prev_table = np.empty((num_t, num_node), dtype=np.uint32)
+    prev_table[:, :] = np.iinfo(np.uint32).max
+    trellis[:, :] = -np.inf
+    log_predict_proba = np.zeros_like(prev_trellis_val)
+
+    symbol_node_len = np.empty(num_node, np.uint32)
+    for i in range(num_node):
+        symbol_node_len[i] = symbol_nodes_out_len[symbol_nodes_spelling_ndx[i]]
+    valid_node_ndx = np.arange(num_node)[symbol_node_len > 0]
+
+    for node_to_i in valid_node_ndx:
+        out_ndx = symbol_nodes_spelling_ndx[node_to_i]
+        out_len = symbol_nodes_out_len[out_ndx]
+        # word start at 0
+        out_i = out_len - 1
+        if out_i < num_t:
+            trellis[out_i, node_to_i] = (
+                prev_trellis_val[node_to_i] + log_symbol_out_emi_proba[out_i, out_ndx]
+            )
+            prev_table[out_i, node_to_i] = dummy_start_node_i
+
+    for t_i in range(num_t - 1):
+        for node_from_i in valid_node_ndx:
+            if trellis[t_i][node_from_i] == -np.inf:
+                continue
+            log_predict_proba = (
+                trellis[t_i][node_from_i] + log_symbol_node_trans_proba[node_from_i]
+            )
+            for node_to_i in valid_node_ndx:
+                out_ndx = symbol_nodes_spelling_ndx[node_to_i]
+                out_len = symbol_nodes_out_len[out_ndx]
+                out_i = out_len + t_i
+                if out_i < num_t:
+                    new_val = (
+                        log_predict_proba[node_to_i]
+                        + log_symbol_out_emi_proba[out_i, out_ndx]
+                        + log_insert_panelty
+                    )
+                    if new_val > trellis[out_i, node_to_i]:
+                        trellis[out_i, node_to_i] = new_val
+                        prev_table[out_i, node_to_i] = node_from_i
+    t_i = num_t - 1
+    for node_from_i in valid_node_ndx:
+        if trellis[t_i][node_from_i] == -np.inf:
+            continue
+        new_val = (
+            trellis[t_i][node_from_i]
+            + log_symbol_node_trans_proba[node_from_i][end_node_i]
+        )
+        if new_val > trellis[t_i, end_node_i]:
+            trellis[t_i, end_node_i] = new_val
+            prev_table[t_i, end_node_i] = node_from_i
+
+    node_ndx = np.zeros(num_t, dtype=np.uint32)
+    num_out = 0
+    t_decode = num_t - 1
+    node_end_at_t_decode = end_node_i
+
+    for i in range(num_t):
+        out_ndx = symbol_nodes_spelling_ndx[node_end_at_t_decode]
+        out_len = symbol_nodes_out_len[out_ndx]
+        node_end_at_t_decode_prev = prev_table[t_decode, node_end_at_t_decode]
+
+        if node_end_at_t_decode_prev == dummy_start_node_i:
+            break
+        node_ndx[num_out] = node_end_at_t_decode_prev
+        num_out += 1
+        t_decode = t_decode - out_len
+        node_end_at_t_decode = node_end_at_t_decode_prev
+
+    for i in range(num_out // 2):
+        end_i = num_out - 1 - i
+        temp = node_ndx[end_i]
+        node_ndx[end_i] = node_ndx[i]
+        node_ndx[i] = temp
+    return node_ndx[:num_out]
+
+
+@jit(
+    [
         f8[:, ::1](f8[:, ::1], nb.types.Omitted(1.0)),
         f8[:, ::1](f8[:, ::1], f8),
     ],

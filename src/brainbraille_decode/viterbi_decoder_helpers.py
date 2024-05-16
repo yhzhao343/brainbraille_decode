@@ -1304,3 +1304,37 @@ def logsumexp(x):
 #                     ]  # - np.log(next_word_len)
 #     log_symbol_node_trans_proba += np.log(_add_k_smoothing(symbol_node_trans, symbol_k))
 #     return log_symbol_node_trans_proba
+
+
+@jit(
+    u4[::1](u4[::1], u4[::1], u4[::1], u4[:, ::1]),
+    nopython=True,
+    fastmath=True,
+    parallel=False,
+    cache=True,
+)
+def symbol_node_to_output(
+    symbol_node_ndx,
+    symbol_nodes_spelling_ndx,
+    symbol_nodes_out_len,
+    symbol_nodes_out_spelling_matrix,
+):
+    symbol_node_len = np.empty_like(symbol_node_ndx)
+    len_symbol_node = len(symbol_node_ndx)
+    for i in range(len_symbol_node):
+        node_i = symbol_node_ndx[i]
+        out_ndx = symbol_nodes_spelling_ndx[node_i]
+        out_len = symbol_nodes_out_len[out_ndx]
+        symbol_node_len[i] = out_len
+    out = np.empty(symbol_node_len.sum(), dtype=np.uint32)
+
+    cursor = 0
+    for i in range(len_symbol_node):
+        node_i = symbol_node_ndx[i]
+        out_ndx = symbol_nodes_spelling_ndx[node_i]
+        out_len = symbol_nodes_out_len[out_ndx]
+        out[cursor : cursor + out_len] = symbol_nodes_out_spelling_matrix[
+            out_ndx, :out_len
+        ]
+        cursor += out_len
+    return out
