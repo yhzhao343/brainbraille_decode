@@ -10,7 +10,14 @@ from functools import partial
 from joblib import Parallel, delayed
 from lipo import GlobalOptimizer
 from copy import deepcopy
-from .lm import letter_label
+from .lm import (
+    letter_label,
+    add_k_smoothing_1d,
+    add_k_smoothing_2d,
+    hidden_state_proba_to_emission_proba,
+    get_log_symbol_out_emission,
+    viterbi_decode_with_grammar_helper_2,
+)
 
 
 @jit(
@@ -1338,3 +1345,96 @@ def symbol_node_to_output(
         ]
         cursor += out_len
     return out
+
+
+@jit(
+    u4[::1](
+        f8[::1],
+        f8,
+        f8[:, ::1],
+        f8,
+        u4,
+        u4,
+        b1[:, ::1],
+        u4[::1],
+        u4[:, ::1],
+        u4[::1],
+        f8[:, ::1],
+        u4,
+        f8,
+    ),
+    nopython=True,
+    fastmath=True,
+    parallel=False,
+    cache=True,
+)
+def viterbi_decode_with_grammar_from_predict_proba(
+    uni_count,
+    uni_k,
+    bi_count,
+    bi_k,
+    dummy_start_node_i,
+    end_node_index,
+    symbol_node_trans,
+    symbol_nodes_spelling_ndx,
+    symbol_nodes_out_spelling_matrix,
+    symbol_nodes_out_len,
+    hidden_state_proba,
+    initial_state,
+    insert_panelty,
+):
+    uni_proba = add_k_smoothing_1d(uni_count, uni_k)
+    bi_proba = add_k_smoothing_2d(bi_count, bi_k)
+    log_bi_proba = np.log1p(bi_proba)
+    dummy_start_trans_to_nodes = symbol_node_trans[dummy_start_node_i]
+
+    symbol_node_trans_proba = get_symbol_node_trans_proba(
+        symbol_nodes_spelling_ndx,
+        symbol_node_trans,
+        bi_proba,
+        symbol_nodes_out_spelling_matrix,
+        symbol_nodes_out_len,
+        end_node_index,
+    )
+    log_symbol_node_trans_proba = np.log1p(symbol_node_trans_proba)
+    init_rest_state_proba = get_init_proba_for_grammar_decode(
+        dummy_start_trans_to_nodes,
+        bi_proba,
+        symbol_nodes_spelling_ndx,
+        symbol_nodes_out_spelling_matrix,
+        symbol_nodes_out_len,
+        initial_state,
+    )
+    log_init_rest_state_proba = np.log1p(init_rest_state_proba)
+    emi_proba = hidden_state_proba_to_emission_proba(hidden_state_proba, uni_proba)
+    log_emi_proba = np.log1p(emi_proba)
+    symbol_node_out_trans_log_proba = get_log_symbol_node_spelling_trans(
+        log_bi_proba, symbol_nodes_out_spelling_matrix, symbol_nodes_out_len
+    )
+    # log_uni_proba = np.log1p(uni_proba)
+    log_symbol_out_emi_proba = get_log_symbol_out_emission(
+        log_emi_proba,
+        symbol_node_out_trans_log_proba,
+        symbol_nodes_out_spelling_matrix,
+        symbol_nodes_out_len,
+    )
+
+    node_ndx = viterbi_decode_with_grammar_helper_2(
+        log_symbol_out_emi_proba,
+        symbol_nodes_spelling_ndx,
+        symbol_nodes_out_len,
+        log_symbol_node_trans_proba,
+        log_init_rest_state_proba,
+        dummy_start_node_i,
+        end_node_index,
+        insert_panelty,
+    )
+
+    out_letter_i = symbol_node_to_output(
+        node_ndx,
+        symbol_nodes_spelling_ndx,
+        symbol_nodes_out_len,
+        symbol_nodes_out_spelling_matrix,
+    )
+
+    return out_letter_i

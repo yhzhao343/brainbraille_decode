@@ -29,7 +29,112 @@ letter_label = " abcdefghijklmnopqrstuvwxyz"
     parallel=False,
     cache=True,
 )
-def viterbi_decode_with_grammar_1(
+def viterbi_decode_with_grammar_helper_2(
+    log_symbol_out_emi_proba,
+    symbol_nodes_spelling_ndx,
+    symbol_nodes_out_len,
+    log_symbol_node_trans_proba,
+    prev_trellis_val,
+    dummy_start_node_i,
+    end_node_i,
+    log_insert_panelty=0.0,
+):
+    (num_t, num_out), num_node = log_symbol_out_emi_proba.shape, len(
+        symbol_nodes_spelling_ndx
+    )
+    trellis = np.empty((num_t, num_node), dtype=np.float64)
+    prev_table = np.empty((num_t, num_node), dtype=np.uint32)
+    prev_table[:, :] = np.iinfo(np.uint32).max
+    trellis[:, :] = -np.inf
+    log_predict_proba = np.zeros_like(prev_trellis_val)
+
+    symbol_node_len = np.empty(num_node, np.uint32)
+    for i in range(num_node):
+        symbol_node_len[i] = symbol_nodes_out_len[symbol_nodes_spelling_ndx[i]]
+    valid_node_ndx = np.arange(num_node)[symbol_node_len > 0]
+
+    for node_to_i in valid_node_ndx:
+        out_ndx = symbol_nodes_spelling_ndx[node_to_i]
+        out_len = symbol_nodes_out_len[out_ndx]
+        out_i = out_len - 1
+        if out_i < num_t:
+            trellis[out_i, node_to_i] = (
+                prev_trellis_val[node_to_i] + log_symbol_out_emi_proba[out_i, out_ndx]
+            )
+            prev_table[out_i, node_to_i] = dummy_start_node_i
+
+    for t_i in range(1, num_t):
+        for node_to_i in valid_node_ndx:
+            to_out_ndx = symbol_nodes_spelling_ndx[node_to_i]
+            to_out_len = symbol_nodes_out_len[to_out_ndx]
+            if t_i >= to_out_len:
+                from_t_i = t_i - to_out_len
+                log_predict_proba = (
+                    trellis[from_t_i]
+                    + log_symbol_node_trans_proba[:, node_to_i]
+                    + log_insert_panelty
+                )
+                best_i = np.argmax(log_predict_proba)
+                trellis[t_i, node_to_i] = (
+                    log_predict_proba[best_i]
+                    + log_symbol_out_emi_proba[t_i, to_out_ndx]
+                )
+                prev_table[t_i, node_to_i] = best_i
+
+    t_i = num_t - 1
+    node_to_i = end_node_i
+
+    log_predict_proba = trellis[t_i] + log_symbol_node_trans_proba[:, node_to_i]
+    best_i = np.argmax(log_predict_proba)
+    trellis[t_i][node_to_i] = log_predict_proba[best_i]
+    prev_table[t_i][node_to_i] = best_i
+
+    node_ndx = np.zeros(num_t, dtype=np.uint32)
+    num_out = 0
+    t_decode = num_t - 1
+    node_end_at_t_decode = end_node_i
+
+    for i in range(num_t):
+        out_ndx = symbol_nodes_spelling_ndx[node_end_at_t_decode]
+        out_len = symbol_nodes_out_len[out_ndx]
+        node_end_at_t_decode_prev = prev_table[t_decode, node_end_at_t_decode]
+
+        if node_end_at_t_decode_prev == dummy_start_node_i:
+            break
+        node_ndx[num_out] = node_end_at_t_decode_prev
+        num_out += 1
+        t_decode = t_decode - out_len
+        node_end_at_t_decode = node_end_at_t_decode_prev
+
+    for i in range(num_out // 2):
+        end_i = num_out - 1 - i
+        temp = node_ndx[end_i]
+        node_ndx[end_i] = node_ndx[i]
+        node_ndx[i] = temp
+
+    return node_ndx[:num_out]
+
+
+@jit(
+    [
+        u4[::1](f8[:, ::1], u4[::1], u4[::1], f8[:, ::1], f8[::1], u4, u4, f8),
+        u4[::1](
+            f8[:, ::1],
+            u4[::1],
+            u4[::1],
+            f8[:, ::1],
+            f8[::1],
+            u4,
+            u4,
+            nb.types.Omitted(0.0),
+        ),
+    ],
+    nopython=True,
+    fastmath=True,
+    parallel=False,
+    cache=True,
+)
+def viterbi_decode_with_grammar_helper_1(
     log_symbol_out_emi_proba,
     symbol_nodes_spelling_ndx,
     symbol_nodes_out_len,
@@ -368,7 +473,7 @@ def forward_decode_from_hidden_state_proba(
     cache=True,
 )
 def viterbi_decode(log_emission_proba, log_transition_proba, initial_log_proba):
-    log_predict_proba = np.empty_like(log_transition_proba)
+    log_predict_proba = np.empty_like(log_emission_proba)
     num_t, num_state = log_emission_proba.shape
     viterbi_trellis = np.empty((num_t, num_state), dtype=np.float64)
     prev_table = np.zeros((num_t, num_state), dtype=np.uint32)
@@ -377,24 +482,55 @@ def viterbi_decode(log_emission_proba, log_transition_proba, initial_log_proba):
     viterbi_trellis[:, :] = -np.inf
     num_t, num_state = log_emission_proba.shape
     for time_i in range(num_t):
-        for state_i in range(num_state):
-            log_predict_proba[state_i] = (
-                prev_trellis_val[state_i] + log_transition_proba[state_i]
+        for to_state_i in range(num_state):
+            log_predict_proba = prev_trellis_val + log_transition_proba[:, to_state_i]
+            best_i = np.argmax(log_predict_proba)
+            viterbi_trellis[time_i, to_state_i] = (
+                log_predict_proba[best_i] + log_emission_proba[time_i, to_state_i]
             )
-        for state_i in range(num_state):
-            best_i = np.argmax(log_predict_proba[:, state_i])
-            best_log_prob = log_predict_proba[best_i, state_i]
-            if best_log_prob > viterbi_trellis[time_i, state_i]:
-                viterbi_trellis[time_i, state_i] = (
-                    best_log_prob + log_emission_proba[time_i, state_i]
-                )
-                prev_table[time_i, state_i] = best_i
+            prev_table[time_i, to_state_i] = best_i
         prev_trellis_val = viterbi_trellis[time_i]
-
     best_state_ind[-1] = np.argmax(prev_trellis_val)
     for i in range(num_t - 2, -1, -1):
         best_state_ind[i] = prev_table[i + 1, best_state_ind[i + 1]]
     return best_state_ind
+
+
+# @jit(
+#     u4[::1](f8[:, ::1], f8[:, ::1], f8[::1]),
+#     nopython=True,
+#     fastmath=True,
+#     parallel=False,
+#     cache=True,
+# )
+# def viterbi_decode(log_emission_proba, log_transition_proba, initial_log_proba):
+#     log_predict_proba = np.empty_like(log_transition_proba)
+#     num_t, num_state = log_emission_proba.shape
+#     viterbi_trellis = np.empty((num_t, num_state), dtype=np.float64)
+#     prev_table = np.zeros((num_t, num_state), dtype=np.uint32)
+#     prev_trellis_val = np.copy(initial_log_proba)
+#     best_state_ind = np.empty(num_t, dtype=np.uint32)
+#     viterbi_trellis[:, :] = -np.inf
+#     num_t, num_state = log_emission_proba.shape
+#     for time_i in range(num_t):
+#         for state_i in range(num_state):
+#             log_predict_proba[state_i] = (
+#                 prev_trellis_val[state_i] + log_transition_proba[state_i]
+#             )
+#         for state_i in range(num_state):
+#             best_i = np.argmax(log_predict_proba[:, state_i])
+#             best_log_prob = log_predict_proba[best_i, state_i]
+#             if best_log_prob > viterbi_trellis[time_i, state_i]:
+#                 viterbi_trellis[time_i, state_i] = (
+#                     best_log_prob + log_emission_proba[time_i, state_i]
+#                 )
+#                 prev_table[time_i, state_i] = best_i
+#         prev_trellis_val = viterbi_trellis[time_i]
+
+#     best_state_ind[-1] = np.argmax(prev_trellis_val)
+#     for i in range(num_t - 2, -1, -1):
+#         best_state_ind[i] = prev_table[i + 1, best_state_ind[i + 1]]
+#     return best_state_ind
 
 
 @jit(
