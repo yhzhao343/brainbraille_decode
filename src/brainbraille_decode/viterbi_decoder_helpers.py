@@ -12,11 +12,6 @@ from lipo import GlobalOptimizer
 from copy import deepcopy
 from .lm import (
     letter_label,
-    add_k_smoothing_1d,
-    add_k_smoothing_2d,
-    hidden_state_proba_to_emission_proba,
-    get_log_symbol_out_emission,
-    viterbi_decode_with_grammar_helper_2,
 )
 
 
@@ -41,42 +36,6 @@ def state_proba_to_letter_proba(state_proba, LETTERS_TO_DOT_array):
         naive_state_proba[time_i, :] /= naive_state_proba[time_i, :].sum()
         naive_state_ind[time_i] = np.argmax(naive_state_proba[time_i, :])
     return naive_state_proba, naive_state_ind
-
-
-@jit(
-    f8[:, ::1](u4[::1], b1[:, ::1], f8[:, ::1], u4[:, ::1], u4[::1], u4),
-    nopython=True,
-    fastmath=True,
-    parallel=False,
-    cache=True,
-)
-def get_symbol_node_trans_proba(
-    symbol_nodes_spelling_ndx,
-    symbol_node_trans,
-    trans_proba,
-    symbol_nodes_out_spelling_matrix,
-    symbol_nodes_out_len,
-    end_node_index,
-):
-    num_nodes = len(symbol_nodes_spelling_ndx)
-    out = np.zeros((num_nodes, num_nodes), dtype=np.float64)
-    symbol_node_len = np.empty(num_nodes, np.uint32)
-    for i in range(num_nodes):
-        symbol_node_len[i] = symbol_nodes_out_len[symbol_nodes_spelling_ndx[i]]
-    valid_symbol_node_indx = np.arange(num_nodes)[symbol_node_len > 0]
-
-    for from_i in valid_symbol_node_indx:
-        from_node_i = symbol_nodes_spelling_ndx[from_i]
-        from_i_len = symbol_node_len[from_node_i]
-        from_i_end_l = symbol_nodes_out_spelling_matrix[from_node_i, from_i_len - 1]
-        for to_i in valid_symbol_node_indx:
-            to_node_i = symbol_nodes_spelling_ndx[to_i]
-            if symbol_node_trans[from_i, to_i]:
-                to_i_start_l = symbol_nodes_out_spelling_matrix[to_node_i, 0]
-                out[from_node_i, to_i_start_l] = trans_proba[from_i_end_l, to_i_start_l]
-        if symbol_node_trans[from_i, end_node_index]:
-            out[from_i, end_node_index] = 1.0
-    return out
 
 
 def get_run_start_end_index(X):
@@ -1022,9 +981,9 @@ def tune_decode_smoothing(
         train_x=train_x,
         train_y=train_y,
         uni_count=uni_count,
-        bigram_count=bigram_count,
+        bi_count=bigram_count,
         initial_proba=initial_proba,
-        letter_label=letter_label,
+        out_label=letter_label,
         decoder=decoder,
     )
     tune_clf_results, tune_clf_history = lipo_param_search(
@@ -1055,28 +1014,12 @@ def tune_decode_smoothing(
 def decode_acc_score(
     train_x,
     train_y,
-    smoothing_1d,
-    smoothing_2d,
-    uni_count,
-    bigram_count,
-    initial_proba,
-    letter_label,
     decoder,
-    uni_k,
-    bi_k,
-    ip_k,
+    **kwargs,
 ):
     pred_y = decoder(
-        smoothing_1d,
-        smoothing_2d,
-        uni_count,
-        uni_k,
-        bigram_count,
-        bi_k,
-        initial_proba,
-        ip_k,
-        train_x,
-        letter_label,
+        **kwargs,
+        letter_proba_per_run=train_x,
     )
     acc = [accuracy_score(label_i, pred_i) for pred_i, label_i in zip(pred_y, train_y)]
     return np.mean(acc)
@@ -1137,30 +1080,6 @@ def symbol_info_preprocess(
 
 
 @jit(
-    f8[::1](f8[:, ::1], u4[:, ::1], u4[::1]),
-    nopython=True,
-    parallel=False,
-    fastmath=True,
-    cache=True,
-)
-def get_log_symbol_node_spelling_trans(
-    log_transition_proba, symbol_nodes_out_spelling_matrix, symbol_nodes_out_len
-):
-    symbol_node_out_trans_log_proba = np.zeros(
-        len(symbol_nodes_out_len), dtype=np.float64
-    )
-    num_symbol_node_out = len(symbol_nodes_out_len)
-    for i in range(num_symbol_node_out):
-        word_len = symbol_nodes_out_len[i]
-        if word_len:
-            for j in range(word_len - 1):
-                l_i1 = symbol_nodes_out_spelling_matrix[i][j]
-                l_i2 = symbol_nodes_out_spelling_matrix[i][j + 1]
-                symbol_node_out_trans_log_proba[i] += log_transition_proba[l_i1][l_i2]
-    return symbol_node_out_trans_log_proba
-
-
-@jit(
     b1[:, ::1](u4[::1], u4[:, ::1], u4[::1], b1[:, ::1], b1[:, ::1], i4, i4),
     nopython=True,
     parallel=False,
@@ -1217,220 +1136,7 @@ def joint_proba_of_hidden_state_sequence(
     return log_joint_proba
 
 
-@jit(
-    f8[::1](b1[::1], f8[:, ::1], u4[::1], u4[:, ::1], u4[::1], f8[::1]),
-    nopython=True,
-    fastmath=True,
-    parallel=False,
-    cache=True,
-)
-def get_init_proba_for_grammar_decode(
-    dummy_start_trans_to_nodes,
-    trans_proba,
-    symbol_nodes_spelling_ndx,
-    symbol_nodes_out_spelling_matrix,
-    symbol_nodes_out_len,
-    initial_proba,
-):
-    initial_proba = initial_proba @ trans_proba
-    num_nodes = len(symbol_nodes_spelling_ndx)
-    symbol_node_len = np.empty(num_nodes, np.uint32)
-    for i in range(num_nodes):
-        symbol_node_len[i] = symbol_nodes_out_len[symbol_nodes_spelling_ndx[i]]
-    valid_symbol_node_indx = np.arange(num_nodes)[
-        (symbol_node_len > 0) & dummy_start_trans_to_nodes
-    ]
-    init_symbol_proba = np.zeros(num_nodes, dtype=np.float64)
-    for to_i in valid_symbol_node_indx:
-        init_symbol_proba[to_i] = initial_proba[
-            symbol_nodes_out_spelling_matrix[symbol_nodes_spelling_ndx[to_i]][0]
-        ]
-    return init_symbol_proba
-
-
-# def get_symbol_node_trans_log_proba(
-#     symbol_node_trans,
-#     symbol_k,
-#     symbol_nodes_spelling_ndx,
-#     log_transition_proba,
-#     symbol_nodes_out_spelling_matrix,
-#     symbol_nodes_out_len,
-# ):
-#     """Return the symbol node -> symbol node transition probability"""
-#     log_symbol_node_trans_proba = np.zeros_like(symbol_node_trans)
-#     log_symbol_node_trans_proba = _get_symbol_node_trans_log_proba(
-#         symbol_node_trans,
-#         symbol_k,
-#         symbol_nodes_spelling_ndx,
-#         log_transition_proba,
-#         symbol_nodes_out_spelling_matrix,
-#         symbol_nodes_out_len,
-#         log_symbol_node_trans_proba,
-#     )
-#     return log_symbol_node_trans_proba
-
-
 @jit(f8(f8[:]), nopython=True, parallel=False, fastmath=True, cache=True)
 def logsumexp(x):
     c = x.max()
     return c + np.log1p(np.sum(np.expm1(x - c)))
-
-
-# @jit(
-#     f8[:, ::1](f8[:, ::1], f8, i4[::1], f8[:, ::1], i4[:, ::1], i4[::1], f8[:, ::1]),
-#     nopython=True,
-#     parallel=False,
-#     fastmath=True,
-#     cache=True,
-# )
-# def _get_symbol_node_trans_log_proba(
-#     symbol_node_trans,
-#     symbol_k,
-#     symbol_nodes_spelling_ndx,
-#     log_transition_proba,
-#     symbol_nodes_out_spelling_matrix,
-#     symbol_nodes_out_len,
-#     log_symbol_node_trans_proba,
-# ):
-#     num_symbol_node = symbol_node_trans.shape[0]
-#     for i in range(num_symbol_node):
-#         from_out_ndx = symbol_nodes_spelling_ndx[i]
-#         prev_word_len = symbol_nodes_out_len[from_out_ndx]
-#         if prev_word_len:
-#             for j in range(num_symbol_node):
-#                 to_out_ndx = symbol_nodes_spelling_ndx[j]
-#                 next_word_len = symbol_nodes_out_len[to_out_ndx]
-#                 if (symbol_node_trans[i][j] > 0) and next_word_len:
-#                     prev_word_end_l = symbol_nodes_out_spelling_matrix[from_out_ndx][
-#                         prev_word_len - 1
-#                     ]
-#                     next_word_start_l = symbol_nodes_out_spelling_matrix[to_out_ndx][0]
-#                     log_symbol_node_trans_proba[from_out_ndx][
-#                         to_out_ndx
-#                     ] = log_transition_proba[prev_word_end_l][
-#                         next_word_start_l
-#                     ]  # - np.log(next_word_len)
-#     log_symbol_node_trans_proba += np.log(_add_k_smoothing(symbol_node_trans, symbol_k))
-#     return log_symbol_node_trans_proba
-
-
-@jit(
-    u4[::1](u4[::1], u4[::1], u4[::1], u4[:, ::1]),
-    nopython=True,
-    fastmath=True,
-    parallel=False,
-    cache=True,
-)
-def symbol_node_to_output(
-    symbol_node_ndx,
-    symbol_nodes_spelling_ndx,
-    symbol_nodes_out_len,
-    symbol_nodes_out_spelling_matrix,
-):
-    symbol_node_len = np.empty_like(symbol_node_ndx)
-    len_symbol_node = len(symbol_node_ndx)
-    for i in range(len_symbol_node):
-        node_i = symbol_node_ndx[i]
-        out_ndx = symbol_nodes_spelling_ndx[node_i]
-        out_len = symbol_nodes_out_len[out_ndx]
-        symbol_node_len[i] = out_len
-    out = np.empty(symbol_node_len.sum(), dtype=np.uint32)
-
-    cursor = 0
-    for i in range(len_symbol_node):
-        node_i = symbol_node_ndx[i]
-        out_ndx = symbol_nodes_spelling_ndx[node_i]
-        out_len = symbol_nodes_out_len[out_ndx]
-        out[cursor : cursor + out_len] = symbol_nodes_out_spelling_matrix[
-            out_ndx, :out_len
-        ]
-        cursor += out_len
-    return out
-
-
-@jit(
-    u4[::1](
-        f8[::1],
-        f8[:, ::1],
-        f8[::1],
-        u4,
-        u4,
-        b1[:, ::1],
-        u4[::1],
-        u4[:, ::1],
-        u4[::1],
-        f8[:, ::1],
-        f8,
-    ),
-    nopython=True,
-    fastmath=True,
-    parallel=False,
-    cache=True,
-)
-def viterbi_decode_with_grammar_from_hidden_state_proba(
-    uni_proba,
-    bi_proba,
-    initial_proba,
-    dummy_start_node_i,
-    end_node_index,
-    symbol_node_trans,
-    symbol_nodes_spelling_ndx,
-    symbol_nodes_out_spelling_matrix,
-    symbol_nodes_out_len,
-    hidden_state_proba,
-    insert_panelty,
-):
-    log_bi_proba = np.log1p(bi_proba)
-    dummy_start_trans_to_nodes = symbol_node_trans[dummy_start_node_i]
-
-    symbol_node_trans_proba = get_symbol_node_trans_proba(
-        symbol_nodes_spelling_ndx,
-        symbol_node_trans,
-        bi_proba,
-        symbol_nodes_out_spelling_matrix,
-        symbol_nodes_out_len,
-        end_node_index,
-    )
-    log_symbol_node_trans_proba = np.log1p(symbol_node_trans_proba)
-
-    init_rest_state_proba = get_init_proba_for_grammar_decode(
-        dummy_start_trans_to_nodes,
-        bi_proba,
-        symbol_nodes_spelling_ndx,
-        symbol_nodes_out_spelling_matrix,
-        symbol_nodes_out_len,
-        initial_proba,
-    )
-    log_init_rest_state_proba = np.log1p(init_rest_state_proba)
-    emi_proba = hidden_state_proba_to_emission_proba(hidden_state_proba, uni_proba)
-    log_emi_proba = np.log1p(emi_proba)
-    symbol_node_out_trans_log_proba = get_log_symbol_node_spelling_trans(
-        log_bi_proba, symbol_nodes_out_spelling_matrix, symbol_nodes_out_len
-    )
-
-    log_symbol_out_emi_proba = get_log_symbol_out_emission(
-        log_emi_proba,
-        symbol_node_out_trans_log_proba,
-        symbol_nodes_out_spelling_matrix,
-        symbol_nodes_out_len,
-    )
-
-    node_ndx = viterbi_decode_with_grammar_helper_2(
-        log_symbol_out_emi_proba,
-        symbol_nodes_spelling_ndx,
-        symbol_nodes_out_len,
-        log_symbol_node_trans_proba,
-        log_init_rest_state_proba,
-        dummy_start_node_i,
-        end_node_index,
-        insert_panelty,
-    )
-
-    out_letter_i = symbol_node_to_output(
-        node_ndx,
-        symbol_nodes_spelling_ndx,
-        symbol_nodes_out_len,
-        symbol_nodes_out_spelling_matrix,
-    )
-
-    return out_letter_i
