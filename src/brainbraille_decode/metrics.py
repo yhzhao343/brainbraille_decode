@@ -1,6 +1,6 @@
 import numpy as np
 from sklearn.metrics import classification_report
-from numba import jit, prange, f8, i4, i8, i1, u4, u8, u1
+from numba import jit, prange, f8, i4, i8, i1, u4, u8, u1, b1
 
 
 def classification_report_from_confusion_matrix(cm):
@@ -64,6 +64,7 @@ def accuracy_score(y_true, y_pred):
         f8(u8[:], u1[:]),
         f8(u8[:], u4[:]),
         f8(u8[:], u8[:]),
+        f8(b1[:], b1[:]),
     ],
     parallel=False,
     nopython=True,

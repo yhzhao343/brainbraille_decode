@@ -803,7 +803,8 @@ def get_slices_and_extract_data(
     subs,
     train_i,
     test_i,
-    train_vali_spliter,
+    train_train_i_list,
+    train_valid_i_list,
     roi_extract_and_filter,
     Z_NORM=True,
     verbose=True,
@@ -825,8 +826,6 @@ def get_slices_and_extract_data(
 
     train_sub_i = [subs[i] for i in train_per_run_data_index]
     test_sub_i = [subs[i] for i in test_per_run_data_index]
-    train_vali_split = partial(train_vali_spliter.split, X=train_i)
-    train_train_i_list, train_valid_i_list = zip(*train_vali_split())
 
     train_train_extracted_Xs, train_valid_extracted_Xs = zip(
         *Parallel(n_jobs=-1)(
@@ -842,7 +841,9 @@ def get_slices_and_extract_data(
                     else deepcopy(roi_extract_and_filter)
                 ),
             )
-            for train_train_i, train_valid_i in train_vali_split()
+            for train_train_i, train_valid_i in zip(
+                train_train_i_list, train_valid_i_list
+            )
         )
     )
 
@@ -906,17 +907,17 @@ def get_slices_and_extract_data(
         test_state_label_i,
         train_train_extracted_flatten_Xs,
         train_train_state_flatten_labels,
+        train_train_letter_flatten_labels,
         train_train_state_flatten_labels_by_r,
         train_valid_extracted_flatten_Xs,
         train_valid_state_flatten_labels,
+        train_valid_letter_flatten_labels,
         train_valid_state_flatten_labels_by_r,
         test_sub_i,
         train_sub_i,
         train_state_flatten_label_i,
         train_data_i,
         test_data_i,
-        train_train_i_list,
-        train_valid_i_list,
     )
 
 
