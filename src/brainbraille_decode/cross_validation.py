@@ -84,7 +84,7 @@ class BrainBrailleCVGen:
         test_list, calib_list = self.sub_dependent_leave_n_run_out(
             sub, n_calib, max_fold_num
         )
-        train_list_i, _ = self.sub_independent_leave_one_sub_out_test_sub(sub=1)
+        train_list_i, _ = self.sub_independent_leave_one_sub_out_test_sub(sub=sub)
         train_list = train_list_i * len(test_list)
         return train_list, test_list, calib_list
 
