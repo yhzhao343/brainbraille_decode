@@ -5,7 +5,7 @@ import numpy as np
 
 
 class BrainBrailleCVGen:
-    def __init__(self, subs, runs, sess):
+    def __init__(self, subs, runs, sess, index=None):
         sub_len = len(subs)
         run_len = len(runs)
         ses_len = len(sess)
@@ -14,7 +14,10 @@ class BrainBrailleCVGen:
         self.subs = np.array(subs, dtype=int)
         self.runs = np.array(runs, dtype=int)
         self.sess = np.array(sess, dtype=int)
-        self.index = np.arange(len(subs))
+        if index is None:
+            self.index = np.arange(len(subs))
+        else:
+            self.index = index
 
     def _sub_select_n(self, sub=1, n=1):
         selected_index = self.index[self.subs == sub]
@@ -66,6 +69,39 @@ class BrainBrailleCVGen:
             train_list[i] = np.concatenate((train_list_i, adapt_list_i))
         return train_list, test_list
 
+    def sub_adaptive_leave_one_sub_out_test_sub_train_valid(
+        self, sub=1, n_adapt=1, max_fold_num=200
+    ):
+        total_train_train_i_list = []
+        total_train_valid_i_list = []
+
+        ndpdt_i_list = self.sub_independent_leave_one_sub_out_test_sub_train_valid(sub)
+        ndpdt_train_train_i_list = ndpdt_i_list[0][0]
+        ndpdt_train_valid_i_list = ndpdt_i_list[1][0]
+
+        for ndpdt_train_train_i, ndpdt_train_valid_i in zip(
+            ndpdt_train_train_i_list, ndpdt_train_valid_i_list
+        ):
+            train_train_i_list = []
+            train_valid_i_list = []
+            train_train_i = set(ndpdt_train_train_i.copy())
+            train_valid_i = set(ndpdt_train_valid_i.copy())
+            adapt_i_combs = combinations(ndpdt_train_valid_i, n_adapt)
+            for adapt_i in adapt_i_combs:
+                adapt_i = set(adapt_i)
+                train_train_i_list.append(list(train_train_i | adapt_i))
+                train_valid_i_list.append(list(train_valid_i - adapt_i))
+
+            if len(ndpdt_train_train_i) > max_fold_num:
+                shuffle(train_train_i_list)
+                train_train_i_list = train_train_i_list[:max_fold_num]
+                shuffle(train_valid_i_list)
+                train_valid_i_list = train_valid_i_list[:max_fold_num]
+            total_train_train_i_list.append(train_train_i_list)
+            total_train_valid_i_list.append(train_valid_i_list)
+
+        return total_train_train_i_list, total_train_valid_i_list
+
     def sub_adaptive_leave_one_sub_out(self, n_adapt=1, max_fold_num=200):
         unique_subs = np.unique(self.subs)
         test_index_list = []
@@ -108,6 +144,19 @@ class BrainBrailleCVGen:
 
     def sub_independent_leave_one_sub_out_test_sub(self, sub=1):
         return [self.index[self.subs != sub]], [self.index[self.subs == sub]]
+
+    def sub_independent_leave_one_sub_out_test_sub_train_valid(self, sub=1):
+        subs_set = set(self.subs)
+        # train_sub_set = subs_set - set((sub,))
+        train_train_i = []
+        train_valid_i = []
+        train_subs = self.subs[self.index[self.subs != sub]]
+        train_index = np.arange(train_subs.size)
+        train_sub_set = set(train_subs)
+        for valid_sub in train_sub_set:
+            train_train_i.append(train_index[train_subs != valid_sub])
+            train_valid_i.append(train_index[train_subs == valid_sub])
+        return [train_train_i], [train_valid_i]
 
     def sub_independent_leave_one_sub_out(self):
         unique_subs = np.unique(self.subs)

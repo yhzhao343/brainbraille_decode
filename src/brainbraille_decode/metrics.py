@@ -41,6 +41,8 @@ def accuracy_score(y_true, y_pred):
         y_pred = np.array(list(bytes(y_pred, "ascii")), dtype=np.int8)
     else:
         y_true, y_pred = np.array(y_true), np.array(y_pred)
+    # print(y_true)
+    # print(y_pred)
     return accuracy_score_numba_helper(y_true, y_pred)
 
 

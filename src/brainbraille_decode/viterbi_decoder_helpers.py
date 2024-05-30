@@ -797,7 +797,7 @@ def tune_clf(
 
 
 def get_slices_and_extract_data(
-    selected_ind,
+    indx,
     fold_i,
     per_run_data,
     subs,
@@ -809,8 +809,8 @@ def get_slices_and_extract_data(
     Z_NORM=True,
     verbose=True,
 ):
-    train_per_run_data_index = np.array([selected_ind[i] for i in train_i])
-    test_per_run_data_index = np.array([selected_ind[i] for i in test_i])
+    train_per_run_data_index = np.array([indx[i] for i in train_i])
+    test_per_run_data_index = np.array([indx[i] for i in test_i])
     if verbose:
         print(f"fold_i: {fold_i}")
         print(f"train_runs:{np.array2string(train_per_run_data_index, 120)}")

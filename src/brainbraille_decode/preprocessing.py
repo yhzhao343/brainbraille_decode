@@ -190,6 +190,9 @@ class ROIandCalibrationExtractor(BaseEstimator, TransformerMixin):
         aggregated_no_overlap=True,
         roi_by_sub=None,
         calib_roi_by_sub=None,
+        fit_roi_all_sub=False,
+        roi_all_sub=None,
+        calib_roi_all_sub=None,
     ):
         self.t_threshold_quantile = t_threshold_quantile
         self.cc_discard_size_ratio = cc_discard_size_ratio
@@ -204,6 +207,13 @@ class ROIandCalibrationExtractor(BaseEstimator, TransformerMixin):
         self.calib_roi_by_sub = {}
         if calib_roi_by_sub is not None:
             self.calib_roi_by_sub.update(calib_roi_by_sub)
+
+        self.fit_roi_all_sub = fit_roi_all_sub
+        self.roi_all_sub = None
+        self.calib_roi_all_sub = None
+        if fit_roi_all_sub:
+            self.roi_all_sub = roi_all_sub
+            self.calib_roi_all_sub = calib_roi_all_sub
 
     def fit(self, X, y=None):
         for x_i in X:
@@ -232,7 +242,30 @@ class ROIandCalibrationExtractor(BaseEstimator, TransformerMixin):
             self.calib_roi_by_sub[sub_i] = get_calib_roi_from_flatten_roi(
                 self.roi_by_sub[sub_i]
             )
+        if self.fit_roi_all_sub:
+            X_sub_i = [X[i] for i in X_ind]
+            self.roi_all_sub = get_aggregated_roi_from_flatten(
+                [X_sub_i_j["roi"] for X_sub_i_j in X_sub_i],
+                [X_sub_i_j["motor_mask"] for X_sub_i_j in X_sub_i],
+                aggregation_threshold_quantile=self.aggregated_threshold_quantile,
+                cc_discard_size_ratio=self.aggregated_cc_discard_size_ratio,
+                no_overlap=self.aggregated_no_overlap,
+            )
+            self.calib_roi_all_sub = get_calib_roi_from_flatten_roi(self.roi_all_sub)
+
         return self
+
+    def get_roi_by_sub(self, sub_num):
+        if sub_num in self.roi_by_sub:
+            return self.roi_by_sub[sub_num]
+        else:
+            return self.roi_all_sub
+
+    def get_calib_roi_by_sub(self, sub_num):
+        if sub_num in self.calib_roi_by_sub:
+            return self.calib_roi_by_sub[sub_num]
+        else:
+            return self.calib_roi_all_sub
 
     def transform(self, X, y=None):
         extracted_X = np.array(
@@ -242,7 +275,7 @@ class ROIandCalibrationExtractor(BaseEstimator, TransformerMixin):
                         np.array(
                             x_i["flatten_func_image"][roi_i, :], dtype=np.float64
                         ).sum(axis=0)
-                        for roi_i in self.roi_by_sub[int(x_i["sub"])][
+                        for roi_i in self.get_roi_by_sub(int(x_i["sub"]))[
                             x_i["motor_mask"], :
                         ].T
                     ]
@@ -254,7 +287,7 @@ class ROIandCalibrationExtractor(BaseEstimator, TransformerMixin):
             [
                 np.array(
                     x_i["flatten_func_image"][
-                        self.calib_roi_by_sub[int(x_i["sub"])][x_i["motor_mask"]]
+                        self.get_calib_roi_by_sub(int(x_i["sub"]))[x_i["motor_mask"]]
                     ]
                 ).sum(axis=0)
                 for x_i in X
