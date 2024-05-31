@@ -72,18 +72,16 @@ class BrainBrailleCVGen:
     def sub_adaptive_leave_one_sub_out_test_sub_train_valid(
         self, sub=1, n_adapt=1, max_fold_num=200
     ):
-        total_train_train_i_list = []
-        total_train_valid_i_list = []
-
-        ndpdt_i_list = self.sub_independent_leave_one_sub_out_test_sub_train_valid(sub)
-        ndpdt_train_train_i_list = ndpdt_i_list[0][0]
-        ndpdt_train_valid_i_list = ndpdt_i_list[1][0]
-
+        (
+            ndpdt_train_train_i_list,
+            ndpdt_train_valid_i_list,
+        ) = self.sub_independent_leave_one_sub_out_test_sub_train_valid(sub)
+        num_fold = np.sum(self.subs == sub)
+        train_train_i_list = []
+        train_valid_i_list = []
         for ndpdt_train_train_i, ndpdt_train_valid_i in zip(
-            ndpdt_train_train_i_list, ndpdt_train_valid_i_list
+            ndpdt_train_train_i_list[0], ndpdt_train_valid_i_list[0]
         ):
-            train_train_i_list = []
-            train_valid_i_list = []
             train_train_i = set(ndpdt_train_train_i.copy())
             train_valid_i = set(ndpdt_train_valid_i.copy())
             adapt_i_combs = combinations(ndpdt_train_valid_i, n_adapt)
@@ -92,14 +90,14 @@ class BrainBrailleCVGen:
                 train_train_i_list.append(list(train_train_i | adapt_i))
                 train_valid_i_list.append(list(train_valid_i - adapt_i))
 
-            if len(ndpdt_train_train_i) > max_fold_num:
-                shuffle(train_train_i_list)
-                train_train_i_list = train_train_i_list[:max_fold_num]
-                shuffle(train_valid_i_list)
-                train_valid_i_list = train_valid_i_list[:max_fold_num]
-            total_train_train_i_list.append(train_train_i_list)
-            total_train_valid_i_list.append(train_valid_i_list)
+        if len(ndpdt_train_train_i) > max_fold_num:
+            shuffle(train_train_i_list)
+            train_train_i_list = train_train_i_list[:max_fold_num]
+            shuffle(train_valid_i_list)
+            train_valid_i_list = train_valid_i_list[:max_fold_num]
 
+        total_train_train_i_list = [train_train_i_list] * num_fold
+        total_train_valid_i_list = [train_valid_i_list] * num_fold
         return total_train_train_i_list, total_train_valid_i_list
 
     def sub_adaptive_leave_one_sub_out(self, n_adapt=1, max_fold_num=200):
