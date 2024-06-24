@@ -1548,8 +1548,12 @@ def grammar_info_gen(letter_labels, EVENT_LEN_S=3, separation_tok_in_word=False)
     mackenzie_soukoreff_letter_bigram_count = get_two_gram_feat_vector(
         mackenzie_soukoreff_text_letter
     )
+    mackenzie_soukoreff_letter_prior_prob = mackenzie_soukoreff_letter_one_gram_count / np.sum(mackenzie_soukoreff_letter_one_gram_count)
+    mackenzie_soukoreff_letter_prior_prob_dict = {l:p for l, p in zip(letter_label, mackenzie_soukoreff_letter_prior_prob)}
     stimulus_letter_one_gram_count = get_one_gram_feat_vector(stimulus_text_letter)
     stimulus_letter_bigram_count = get_two_gram_feat_vector(stimulus_text_letter)
+    stimulus_letter_prior_prob = stimulus_letter_one_gram_count / np.sum(stimulus_letter_one_gram_count)
+    stimulus_letter_prior_prob_dict = {l:p for l, p in zip(letter_label, stimulus_letter_prior_prob)}
 
     return {
         "word_separation_tok": word_separation_tok,
@@ -1597,7 +1601,9 @@ def grammar_info_gen(letter_labels, EVENT_LEN_S=3, separation_tok_in_word=False)
         "unique_mackenzie_soukoreff_word_dictionary_string": unique_mackenzie_soukoreff_word_dictionary_string,
         "mackenzie_soukoreff_content_letters": mackenzie_soukoreff_content_letters,
         "mackenzie_soukoreff_letter_one_gram_count": mackenzie_soukoreff_letter_one_gram_count,
+        "mackenzie_soukoreff_letter_prior_prob_dict": mackenzie_soukoreff_letter_prior_prob_dict,
         "mackenzie_soukoreff_letter_bigram_count": mackenzie_soukoreff_letter_bigram_count,
         "stimulus_letter_one_gram_count": stimulus_letter_one_gram_count,
+        "stimulus_letter_prior_prob_dict": stimulus_letter_prior_prob_dict,
         "stimulus_letter_bigram_count": stimulus_letter_bigram_count,
     }
