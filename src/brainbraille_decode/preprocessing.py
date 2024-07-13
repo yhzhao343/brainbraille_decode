@@ -33,10 +33,10 @@ class ButterworthBandpassFilter(BaseEstimator, TransformerMixin):
     def fit(self, X, y=None):
         return self
 
-    def transform(self, X, y=None, axis=None):
+    def transform(self, X, y=None, axis=None, n_jobs=-1):
         axis_to_use = self.axis if axis is None else axis
         return np.array(
-            Parallel(n_jobs=-1)(
+            Parallel(n_jobs=n_jobs)(
                 delayed(sosfilt)(self.sos, x_i, axis_to_use) for x_i in X
             )
         )

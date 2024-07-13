@@ -808,6 +808,7 @@ def get_slices_and_extract_data(
     roi_extract_and_filter,
     Z_NORM=True,
     verbose=True,
+    n_jobs=-1,
 ):
     train_per_run_data_index = np.array([indx[i] for i in train_i])
     test_per_run_data_index = np.array([indx[i] for i in test_i])
@@ -828,7 +829,7 @@ def get_slices_and_extract_data(
     test_sub_i = [subs[i] for i in test_per_run_data_index]
 
     train_train_extracted_Xs, train_valid_extracted_Xs = zip(
-        *Parallel(n_jobs=-1)(
+        *Parallel(n_jobs=n_jobs)(
             delayed(extract_data_for_hp_tuning)(
                 [train_data_i[i] for i in train_train_i],
                 [train_data_i[i] for i in train_valid_i],
