@@ -378,12 +378,13 @@ class ROIandCalibrationExtractor(BaseEstimator, TransformerMixin):
             return self.calib_roi_all_sub
 
     def transform(self, X, y=None):
+        min_len = np.min([x_i["flatten_func_image"].shape[1] for x_i in X])
         extracted_X = np.array(
             [
                 np.array(
                     [
                         np.array(
-                            x_i["flatten_func_image"][roi_i, :], dtype=np.float64
+                            x_i["flatten_func_image"][roi_i, :min_len], dtype=np.float64
                         ).sum(axis=0)
                         for roi_i in self.get_roi_by_sub(int(x_i["sub"]))[
                             x_i["motor_mask"], :
@@ -397,7 +398,7 @@ class ROIandCalibrationExtractor(BaseEstimator, TransformerMixin):
             [
                 np.array(
                     x_i["flatten_func_image"][
-                        self.get_calib_roi_by_sub(int(x_i["sub"]))[x_i["motor_mask"]]
+                        self.get_calib_roi_by_sub(int(x_i["sub"]))[x_i["motor_mask"]], :min_len
                     ]
                 ).sum(axis=0)
                 for x_i in X
