@@ -139,7 +139,7 @@ class LeadingTrailingDataSlice(BaseEstimator, TransformerMixin):
 
     def transform(self, X):
         slice_indice_start = (
-            np.arange(0, self.event_len_frame * self.num_slices, self.event_len_frame)
+            np.arange(0, self.event_len_frame * self.num_slices, self.event_interval_frame)
             + self.delay_frame
             - self.leading_frame
         )
