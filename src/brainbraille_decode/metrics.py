@@ -116,7 +116,12 @@ def confusion_matrix_numba_helper(cm, y_true, y_pred):
 
 
 def naive_information_transfer_per_selection(N, P):
-    return np.log2(N) + P * np.log2(P) + (1 - P) * np.log2((1 - P) / (N - 1))
+    if P == 1:
+        return np.log2(N)
+    elif P == 0.0:
+        return 0
+    else:
+        return np.log2(N) + P * np.log2(P) + (1 - P) * np.log2((1 - P) / (N - 1))
 
 
 def normalize_confusion_matrix(cm):
