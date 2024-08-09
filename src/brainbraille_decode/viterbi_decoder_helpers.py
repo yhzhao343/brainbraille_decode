@@ -628,9 +628,14 @@ def pp_array(arr, delimiter="\t"):
 
 
 def extract_data_for_hp_tuning(
-    train_train_data_i, train_valid_data_i, roi_extract_and_filter_i
+    train_train_data_i,
+    train_train_label_i,
+    train_valid_data_i,
+    roi_extract_and_filter_i,
 ):
-    train_train_X = roi_extract_and_filter_i.fit_transform(train_train_data_i)
+    train_train_X = roi_extract_and_filter_i.fit_transform(
+        train_train_data_i, train_train_label_i
+    )
     train_valid_X = roi_extract_and_filter_i.transform(train_valid_data_i)
     return train_train_X, train_valid_X
 
@@ -832,6 +837,7 @@ def get_slices_and_extract_data(
         *Parallel(n_jobs=n_jobs)(
             delayed(extract_data_for_hp_tuning)(
                 [train_data_i[i] for i in train_train_i],
+                [train_letter_label_i[i] for i in train_train_i],
                 [train_data_i[i] for i in train_valid_i],
                 (
                     deepcopy(roi_extract_and_filter).set_params(
