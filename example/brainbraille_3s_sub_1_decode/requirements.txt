@@ -1,2 +1,0 @@
-msgpack
-msgpack_numpy

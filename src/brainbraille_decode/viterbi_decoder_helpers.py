@@ -814,6 +814,7 @@ def get_slices_and_extract_data(
     Z_NORM=True,
     verbose=True,
     n_jobs=-1,
+    flatten=True,
 ):
     train_per_run_data_index = np.array([indx[i] for i in train_i])
     test_per_run_data_index = np.array([indx[i] for i in test_i])
@@ -854,15 +855,6 @@ def get_slices_and_extract_data(
         )
     )
 
-    train_train_extracted_flatten_Xs = [
-        x_i.reshape((np.prod(x_i.shape[:2]), np.prod(x_i.shape[2:])))
-        for x_i in train_train_extracted_Xs
-    ]
-    train_valid_extracted_flatten_Xs = [
-        x_i.reshape((np.prod(x_i.shape[:2]), np.prod(x_i.shape[2:])))
-        for x_i in train_valid_extracted_Xs
-    ]
-
     train_train_letter_labels = [
         [train_letter_label_i[i] for i in train_train_i]
         for train_train_i in train_train_i_list
@@ -880,52 +872,95 @@ def get_slices_and_extract_data(
         for train_valid_i in train_valid_i_list
     ]
 
-    train_train_letter_flatten_labels = [
-        [j for i in split_i for j in i] for split_i in train_train_letter_labels
-    ]
-    train_valid_letter_flatten_labels = [
-        [j for i in split_i for j in i] for split_i in train_valid_letter_labels
-    ]
-    train_train_state_flatten_labels = [
-        [j for i in split_i for j in i] for split_i in train_train_state_labels
-    ]
-    train_valid_state_flatten_labels = [
-        [j for i in split_i for j in i] for split_i in train_valid_state_labels
-    ]
+    if not flatten:
+        return (
+            train_letter_label_i,
+            test_letter_label_i,
+            train_state_label_i,
+            test_state_label_i,
+            # train_train_extracted_flatten_Xs,
+            train_train_extracted_Xs,
+            # train_train_state_flatten_labels,
+            train_train_state_labels,
+            # train_train_letter_flatten_labels,
+            train_train_letter_labels,
+            # train_train_state_flatten_labels_by_r,
+            # train_valid_extracted_flatten_Xs,
+            train_valid_extracted_Xs,
+            # train_valid_state_flatten_labels,
+            train_valid_state_labels,
+            # train_valid_letter_flatten_labels,
+            train_valid_letter_labels,
+            # train_valid_state_flatten_labels_by_r,
+            test_sub_i,
+            train_sub_i,
+            # train_state_flatten_label_i,
+            # train_state_label_i,
+            train_data_i,
+            test_data_i,
+        )
+    else:
+        train_train_extracted_flatten_Xs = [
+            x_i.reshape((np.prod(x_i.shape[:2]), np.prod(x_i.shape[2:])))
+            for x_i in train_train_extracted_Xs
+        ]
+        train_valid_extracted_flatten_Xs = [
+            x_i.reshape((np.prod(x_i.shape[:2]), np.prod(x_i.shape[2:])))
+            for x_i in train_valid_extracted_Xs
+        ]
 
-    train_train_state_flatten_labels_by_r = [
-        [[e[r_i] for e in run_i] for run_i in train_train_state_flatten_labels]
-        for r_i in range(len(train_train_state_flatten_labels[0][0]))
-    ]
-    train_valid_state_flatten_labels_by_r = [
-        [[e[r_i] for e in run_i] for run_i in train_valid_state_flatten_labels]
-        for r_i in range(len(train_valid_state_flatten_labels[0][0]))
-    ]
+        train_train_letter_flatten_labels = [
+            [j for i in split_i for j in i] for split_i in train_train_letter_labels
+        ]
+        train_valid_letter_flatten_labels = [
+            [j for i in split_i for j in i] for split_i in train_valid_letter_labels
+        ]
+        train_train_state_flatten_labels = [
+            [j for i in split_i for j in i] for split_i in train_train_state_labels
+        ]
+        train_valid_state_flatten_labels = [
+            [j for i in split_i for j in i] for split_i in train_valid_state_labels
+        ]
 
-    train_letter_flatten_label_i = [j for run_i in train_letter_label_i for j in run_i]
-    test_letter_flatten_label_i = [j for run_i in test_letter_label_i for j in run_i]
-    train_state_flatten_label_i = [j for run_i in train_state_label_i for j in run_i]
-    test_state_flatten_label_i = [j for run_i in test_state_label_i for j in run_i]
+        train_train_state_flatten_labels_by_r = [
+            [[e[r_i] for e in run_i] for run_i in train_train_state_flatten_labels]
+            for r_i in range(len(train_train_state_flatten_labels[0][0]))
+        ]
+        train_valid_state_flatten_labels_by_r = [
+            [[e[r_i] for e in run_i] for run_i in train_valid_state_flatten_labels]
+            for r_i in range(len(train_valid_state_flatten_labels[0][0]))
+        ]
 
-    return (
-        train_letter_label_i,
-        test_letter_label_i,
-        train_state_label_i,
-        test_state_label_i,
-        train_train_extracted_flatten_Xs,
-        train_train_state_flatten_labels,
-        train_train_letter_flatten_labels,
-        train_train_state_flatten_labels_by_r,
-        train_valid_extracted_flatten_Xs,
-        train_valid_state_flatten_labels,
-        train_valid_letter_flatten_labels,
-        train_valid_state_flatten_labels_by_r,
-        test_sub_i,
-        train_sub_i,
-        train_state_flatten_label_i,
-        train_data_i,
-        test_data_i,
-    )
+        train_letter_flatten_label_i = [
+            j for run_i in train_letter_label_i for j in run_i
+        ]
+        test_letter_flatten_label_i = [
+            j for run_i in test_letter_label_i for j in run_i
+        ]
+        train_state_flatten_label_i = [
+            j for run_i in train_state_label_i for j in run_i
+        ]
+        test_state_flatten_label_i = [j for run_i in test_state_label_i for j in run_i]
+
+        return (
+            train_letter_label_i,
+            test_letter_label_i,
+            train_state_label_i,
+            test_state_label_i,
+            train_train_extracted_flatten_Xs,
+            train_train_state_flatten_labels,
+            train_train_letter_flatten_labels,
+            train_train_state_flatten_labels_by_r,
+            train_valid_extracted_flatten_Xs,
+            train_valid_state_flatten_labels,
+            train_valid_letter_flatten_labels,
+            train_valid_state_flatten_labels_by_r,
+            test_sub_i,
+            train_sub_i,
+            train_state_flatten_label_i,
+            train_data_i,
+            test_data_i,
+        )
 
 
 def state_prob_to_letter_prob(predict_state_per_run, LETTERS_TO_DOT_array):
