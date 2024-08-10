@@ -803,6 +803,9 @@ def tune_clf(
     random_state=42,
     n_calls=128,
     sub_sample_ratio=0.2,
+    refit=True,
+    flatten=False,
+    n_jobs=-1,
 ):
     # train_train_state_flatten_labels = [[l_i_j[r_i] for l_i_j in l_i] for l_i in train_train_state_flatten_labels]
     # train_valid_state_flatten_labels = [[l_i_j[r_i] for l_i_j in l_i] for l_i in train_valid_state_flatten_labels]
@@ -814,6 +817,9 @@ def tune_clf(
         train_valid_state_flatten_labels,
         sub_sample_ratio,
         random_state,
+        refit,
+        flatten,
+        n_jobs,
     )
     tune_clf_results, tune_clf_history = lipo_param_search(
         func_to_max,
