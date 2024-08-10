@@ -121,6 +121,7 @@ class HTKHMMDecoder:
     def set_params(self, **kwargs):
         for key, value in kwargs.items():
             setattr(self, key, value)
+        return self
 
     def predict(self, X, insertion_penalty=None, token_label=True):
         if insertion_penalty is not None:
