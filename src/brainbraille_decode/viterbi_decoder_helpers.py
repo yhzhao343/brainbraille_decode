@@ -543,6 +543,24 @@ def clf_fit_pred_score(clf, train_X_i, train_y_i, test_X_i, test_y_i):
     )
 
 
+def clf_fit_pred_score_flatten(clf, train_X_i, train_y_i, test_X_i, test_y_i):
+    flatten_y_i = [item_i for run_i in test_y_i for item_i in run_i]
+    pred = deepcopy(clf).fit(train_X_i, train_y_i).predict(test_X_i)
+    flatten_pred = [item_i for run_i in pred for item_i in run_i]
+    return accuracy_score(flatten_y_i, flatten_pred)
+
+
+def clf_pred_score(clf, train_X_i, train_y_i, test_X_i, test_y_i):
+    return accuracy_score(test_y_i, deepcopy(clf).predict(test_X_i))
+
+
+def clf_pred_score_flatten(clf, train_X_i, train_y_i, test_X_i, test_y_i):
+    flatten_y_i = [item_i for run_i in test_y_i for item_i in run_i]
+    pred = deepcopy(clf).predict(test_X_i)
+    flatten_pred = [item_i for run_i in pred for item_i in run_i]
+    return accuracy_score(flatten_y_i, flatten_pred)
+
+
 def clf_fit(clf, X, y):
     return deepcopy(clf).fit(X, y)
 
@@ -714,6 +732,8 @@ def clf_score_gen(
     cv_test_y,
     sub_sample_ratio=0.2,
     random_state=42,
+    refit=True,
+    flatten=False,
     n_jobs=-1,
 ):
     if sub_sample_ratio < 1.0:
@@ -731,11 +751,21 @@ def clf_score_gen(
                 for i, ind in enumerate(subsample_ind_list)
             ]
         )
+    if refit:
+        if flatten:
+            scorer = clf_fit_pred_score_flatten
+        else:
+            scorer = clf_fit_pred_score
+    else:
+        if flatten:
+            scorer = clf_pred_score_flatten
+        else:
+            scorer = clf_pred_score
 
     def clf_score(**kwargs):
         scores = np.array(
             Parallel(n_jobs=n_jobs)(
-                delayed(clf_fit_pred_score)(
+                delayed(scorer)(
                     deepcopy(clf).set_params(**kwargs),
                     train_X_i,
                     train_y_i,
