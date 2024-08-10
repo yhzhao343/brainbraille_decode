@@ -63,7 +63,7 @@ class HTKHMMDecoder:
         label_time_period_ms=600,
         num_mixtures=1,
         use_full_cov=False,
-        SUPRESS_ALL_SUBPROCESS_OUTPUT=True
+        SUPRESS_ALL_SUBPROCESS_OUTPUT=True,
     ):
         self.dict_string = dict_string
         self.grammar_string = grammar_string
@@ -117,6 +117,10 @@ class HTKHMMDecoder:
         )
         self.clf.fit(X, y)
         return self
+
+    def set_params(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
     def predict(self, X, insertion_penalty=None, token_label=True):
         if insertion_penalty is not None:
