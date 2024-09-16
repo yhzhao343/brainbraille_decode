@@ -10,6 +10,7 @@ setup(
     author_email="yhzhao343@gmail.com",
     url='https://github.com/yhzhao343/brainbraille_decode',
     package_dir={"": "src"},
+    package_data={"brainbraille_decode":["*.bin"]},
     packages=find_packages(where="src"),
     zip_safe=False,
     install_requires=[
@@ -23,5 +24,7 @@ setup(
         "joblib",
         "dlib",
         "lipo",
+        "msgpack",
+        "msgpack_numpy"
     ],
 )

@@ -6,6 +6,9 @@ import numba as nb
 from fastFMRI.file_helpers import write_file, load_file, delete_file_if_exists
 from functools import partial
 from .HTK import get_word_lattice_from_grammar, parseLatticeString
+import msgpack
+import msgpack_numpy as m
+m.patch()
 
 letter_label = " abcdefghijklmnopqrstuvwxyz"
 
@@ -1349,8 +1352,30 @@ the picket line gives me the chills
 
 """
 
-
 def grammar_info_gen(letter_labels, EVENT_LEN_S=3, separation_tok_in_word=False):
+    if EVENT_LEN_S not in {1.5, 3}:
+        raise ValueError(f"EVENT_LEN_S needs to be 3 or 1.5. However, input value is EVENT_LEN_S: {EVENT_LEN_S}")
+    try:
+        return grammar_info_gen_helper(letter_labels, EVENT_LEN_S, separation_tok_in_word)
+    except Exception as e:
+        print(f"Using cached response because an exception occurred:\n{e}")
+        parent_path = os.path.dirname(os.path.abspath(__file__))
+        if EVENT_LEN_S == 3:
+            if separation_tok_in_word:
+                grammar_info_cache_file = f"{parent_path}/grammar_info_3s_True.bin"
+            else:
+                grammar_info_cache_file = f"{parent_path}/grammar_info_3s_False.bin"
+        if EVENT_LEN_S == 1.5:
+            if separation_tok_in_word:
+                grammar_info_cache_file = f"{parent_path}/grammar_info_1s5_True.bin"
+            else:
+                grammar_info_cache_file = f"{parent_path}/grammar_info_1s5_False.bin"
+        grammar_info = msgpack.unpackb(load_file(grammar_info_cache_file, "rb"), strict_map_key=False)
+        return grammar_info
+
+
+
+def grammar_info_gen_helper(letter_labels, EVENT_LEN_S=3, separation_tok_in_word=False):
     if EVENT_LEN_S not in (3, 1.5):
         EVENT_LEN_S = 3
 
