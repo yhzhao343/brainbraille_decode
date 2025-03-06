@@ -174,3 +174,4 @@ src/brainbraille_decode/backup.py
 example
 *.nii.gz
 *.out
+example
