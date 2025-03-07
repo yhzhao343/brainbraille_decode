@@ -8,6 +8,7 @@ from functools import partial
 from .HTK import get_word_lattice_from_grammar, parseLatticeString
 import msgpack
 import msgpack_numpy as m
+
 m.patch()
 
 letter_label = " abcdefghijklmnopqrstuvwxyz"
@@ -42,9 +43,7 @@ def viterbi_decode_with_grammar_helper_2(
     end_node_i,
     log_insert_panelty=0.0,
 ):
-    (num_t, num_out), num_node = log_symbol_out_emi_proba.shape, len(
-        symbol_nodes_spelling_ndx
-    )
+    (num_t, num_out), num_node = log_symbol_out_emi_proba.shape, len(symbol_nodes_spelling_ndx)
     trellis = np.empty((num_t, num_node), dtype=np.float64)
     prev_table = np.empty((num_t, num_node), dtype=np.uint32)
     prev_table[:, :] = np.iinfo(np.uint32).max
@@ -79,8 +78,7 @@ def viterbi_decode_with_grammar_helper_2(
                 )
                 best_i = np.argmax(log_predict_proba)
                 trellis[t_i, node_to_i] = (
-                    log_predict_proba[best_i]
-                    + log_symbol_out_emi_proba[t_i, to_out_ndx]
+                    log_predict_proba[best_i] + log_symbol_out_emi_proba[t_i, to_out_ndx]
                 )
                 prev_table[t_i, node_to_i] = best_i
 
@@ -140,16 +138,14 @@ def get_log_symbol_out_emission(
         if node_len > 0:
             spelling = symbol_nodes_out_spelling_matrix[node_out_i]
             node_emi_start_i = node_len - 1
-            symbol_node_emi_proba[
-                node_emi_start_i:, node_out_i
-            ] = symbol_node_out_trans_log_proba[node_out_i]
+            symbol_node_emi_proba[node_emi_start_i:, node_out_i] = symbol_node_out_trans_log_proba[
+                node_out_i
+            ]
             for t_i in range(node_emi_start_i, num_t):
                 for l_i in range(node_len):
                     t_l_i = t_i - node_len + l_i + 1
                     letter = spelling[l_i]
-                    symbol_node_emi_proba[t_i][node_out_i] += log_emission_proba[t_l_i][
-                        letter
-                    ]
+                    symbol_node_emi_proba[t_i][node_out_i] += log_emission_proba[t_l_i][letter]
     return symbol_node_emi_proba
 
 
@@ -182,9 +178,7 @@ def viterbi_decode_with_grammar_helper_1(
     end_node_i,
     log_insert_panelty=0.0,
 ):
-    (num_t, num_out), num_node = log_symbol_out_emi_proba.shape, len(
-        symbol_nodes_spelling_ndx
-    )
+    (num_t, num_out), num_node = log_symbol_out_emi_proba.shape, len(symbol_nodes_spelling_ndx)
     trellis = np.empty((num_t, num_node), dtype=np.float64)
     prev_table = np.empty((num_t, num_node), dtype=np.uint32)
     prev_table[:, :] = np.iinfo(np.uint32).max
@@ -211,9 +205,7 @@ def viterbi_decode_with_grammar_helper_1(
         for node_from_i in valid_node_ndx:
             if trellis[t_i][node_from_i] == -np.inf:
                 continue
-            log_predict_proba = (
-                trellis[t_i][node_from_i] + log_symbol_node_trans_proba[node_from_i]
-            )
+            log_predict_proba = trellis[t_i][node_from_i] + log_symbol_node_trans_proba[node_from_i]
             for node_to_i in valid_node_ndx:
                 out_ndx = symbol_nodes_spelling_ndx[node_to_i]
                 out_len = symbol_nodes_out_len[out_ndx]
@@ -231,10 +223,7 @@ def viterbi_decode_with_grammar_helper_1(
     for node_from_i in valid_node_ndx:
         if trellis[t_i][node_from_i] == -np.inf:
             continue
-        new_val = (
-            trellis[t_i][node_from_i]
-            + log_symbol_node_trans_proba[node_from_i][end_node_i]
-        )
+        new_val = trellis[t_i][node_from_i] + log_symbol_node_trans_proba[node_from_i][end_node_i]
         if new_val > trellis[t_i, end_node_i]:
             trellis[t_i, end_node_i] = new_val
             prev_table[t_i, end_node_i] = node_from_i
@@ -357,9 +346,7 @@ def txt_to_np_array(txt):
     return txt
 
 
-def get_one_gram_feat_vector(
-    txt, normalize=False, k=1, int_dtype=np.int64, float_dtype=np.float64
-):
+def get_one_gram_feat_vector(txt, normalize=False, k=1, int_dtype=np.int64, float_dtype=np.float64):
     txt = txt_to_np_array(txt)
     vec = np.zeros(27, dtype=int_dtype)
     # do n-gram count with a default value to prevent proba = 0
@@ -370,9 +357,7 @@ def get_one_gram_feat_vector(
     return vec
 
 
-def get_two_gram_feat_vector(
-    txt, normalize=False, k=1, int_dtype=np.int64, float_dtype=np.float64
-):
+def get_two_gram_feat_vector(txt, normalize=False, k=1, int_dtype=np.int64, float_dtype=np.float64):
     txt = txt_to_np_array(txt)
     vec = np.zeros((27, 27), dtype=int_dtype)
     for i, c_0 in enumerate(txt[:-1]):
@@ -453,9 +438,7 @@ def forward_decode(emission_proba, transition_proba, initial_proba):
     best_state_ind = np.empty(num_t, dtype=np.uint32)
 
     for time_i in range(len(emission_proba)):
-        viterbi_trellis[time_i, :] = emission_proba[time_i] * (
-            prev_trellis_val @ transition_proba
-        )
+        viterbi_trellis[time_i, :] = emission_proba[time_i] * (prev_trellis_val @ transition_proba)
         viterbi_trellis[time_i, :] /= viterbi_trellis[time_i, :].sum()
         prev_trellis_val[0] = viterbi_trellis[time_i, :]
         best_state_ind[time_i] = np.argmax(viterbi_trellis[time_i, :])
@@ -539,9 +522,7 @@ def get_init_proba_for_grammar_decode(
 def get_log_symbol_node_spelling_trans(
     log_transition_proba, symbol_nodes_out_spelling_matrix, symbol_nodes_out_len
 ):
-    symbol_node_out_trans_log_proba = np.zeros(
-        len(symbol_nodes_out_len), dtype=np.float64
-    )
+    symbol_node_out_trans_log_proba = np.zeros(len(symbol_nodes_out_len), dtype=np.float64)
     num_symbol_node_out = len(symbol_nodes_out_len)
     for i in range(num_symbol_node_out):
         word_len = symbol_nodes_out_len[i]
@@ -580,9 +561,7 @@ def symbol_node_to_output(
         node_i = symbol_node_ndx[i]
         out_ndx = symbol_nodes_spelling_ndx[node_i]
         out_len = symbol_nodes_out_len[out_ndx]
-        out[cursor : cursor + out_len] = symbol_nodes_out_spelling_matrix[
-            out_ndx, :out_len
-        ]
+        out[cursor : cursor + out_len] = symbol_nodes_out_spelling_matrix[out_ndx, :out_len]
         cursor += out_len
     return out
 
@@ -734,15 +713,10 @@ def forward_decode_from_letter_proba_for_all_runs(
     bi_proba = smoothing_2d(bi_count, bi_k)
     initial_proba = smoothing_1d(initial_proba, ip_k)
     forward_decode_letter_index_per_run = [
-        forward_decode_from_hidden_state_proba(
-            run_i, uni_proba, bi_proba, initial_proba
-        )
+        forward_decode_from_hidden_state_proba(run_i, uni_proba, bi_proba, initial_proba)
         for run_i in letter_proba_per_run
     ]
-    return [
-        [out_label[i] for i in ind_list]
-        for ind_list in forward_decode_letter_index_per_run
-    ]
+    return [[out_label[i] for i in ind_list] for ind_list in forward_decode_letter_index_per_run]
 
 
 @jit(
@@ -752,9 +726,7 @@ def forward_decode_from_letter_proba_for_all_runs(
     parallel=False,
     cache=True,
 )
-def forward_decode_from_hidden_state_proba(
-    hidden_state_proba, uni_proba, bi_proba, init_proba
-):
+def forward_decode_from_hidden_state_proba(hidden_state_proba, uni_proba, bi_proba, init_proba):
     emission_proba = hidden_state_proba_to_emission_proba(hidden_state_proba, uni_proba)
     return forward_decode(emission_proba, bi_proba, init_proba)
 
@@ -812,9 +784,7 @@ def viterbi_decode_from_hidden_state_proba(
     uni_proba = np.log1p(uni_proba)
     hidden_state_proba = np.log1p(hidden_state_proba)
     prev_trellis_val = np.log1p(prev_trellis_val)
-    log_emission_proba = log_hidden_state_proba_to_log_emission_proba(
-        hidden_state_proba, uni_proba
-    )
+    log_emission_proba = log_hidden_state_proba_to_log_emission_proba(hidden_state_proba, uni_proba)
     return viterbi_decode(
         log_emission_proba,
         bi_proba,
@@ -838,15 +808,10 @@ def viterbi_decode_from_letter_proba_for_all_runs(
     bi_proba = smoothing_2d(bi_count, bi_k)
     initial_proba = smoothing_1d(initial_proba, ip_k)
     viterbi_decode_letter_index_per_run = [
-        viterbi_decode_from_hidden_state_proba(
-            run_i, uni_proba, bi_proba, initial_proba
-        )
+        viterbi_decode_from_hidden_state_proba(run_i, uni_proba, bi_proba, initial_proba)
         for run_i in letter_proba_per_run
     ]
-    return [
-        [out_label[i] for i in ind_list]
-        for ind_list in viterbi_decode_letter_index_per_run
-    ]
+    return [[out_label[i] for i in ind_list] for ind_list in viterbi_decode_letter_index_per_run]
 
 
 mackenzie_soukoreff_corpus = """my watch fell in the water
@@ -1352,9 +1317,12 @@ the picket line gives me the chills
 
 """
 
-def grammar_info_gen(letter_labels, EVENT_LEN_S=3, separation_tok_in_word=False):
+
+def grammar_info_gen(letter_labels, EVENT_LEN_S=3.0, separation_tok_in_word=False):
     if EVENT_LEN_S not in {1.5, 3}:
-        raise ValueError(f"EVENT_LEN_S needs to be 3 or 1.5. However, input value is EVENT_LEN_S: {EVENT_LEN_S}")
+        raise ValueError(
+            f"EVENT_LEN_S needs to be 3 or 1.5. However, input value is EVENT_LEN_S: {EVENT_LEN_S}"
+        )
     try:
         return grammar_info_gen_helper(letter_labels, EVENT_LEN_S, separation_tok_in_word)
     except Exception as e:
@@ -1370,12 +1338,13 @@ def grammar_info_gen(letter_labels, EVENT_LEN_S=3, separation_tok_in_word=False)
                 grammar_info_cache_file = f"{parent_path}/grammar_info_1s5_True.bin"
             else:
                 grammar_info_cache_file = f"{parent_path}/grammar_info_1s5_False.bin"
-        grammar_info = msgpack.unpackb(load_file(grammar_info_cache_file, "rb"), strict_map_key=False)
+        grammar_info = msgpack.unpackb(
+            load_file(grammar_info_cache_file, "rb"), strict_map_key=False
+        )
         return grammar_info
 
 
-
-def grammar_info_gen_helper(letter_labels, EVENT_LEN_S=3, separation_tok_in_word=False):
+def grammar_info_gen_helper(letter_labels, EVENT_LEN_S=3.0, separation_tok_in_word=False):
     if EVENT_LEN_S not in (3, 1.5):
         EVENT_LEN_S = 3
 
@@ -1383,14 +1352,7 @@ def grammar_info_gen_helper(letter_labels, EVENT_LEN_S=3, separation_tok_in_word
         word_separation_tok = "  "
         sent_separation_tok = "   "
         stimulus_text_content = (
-            (
-                "\n".join(
-                    [
-                        "".join(p).replace(sent_separation_tok, "\n")[1:]
-                        for p in letter_labels
-                    ]
-                )
-            )
+            ("\n".join(["".join(p).replace(sent_separation_tok, "\n")[1:] for p in letter_labels]))
             .replace("\n\n", "\n")
             .replace(word_separation_tok, " ")
         )
@@ -1418,12 +1380,7 @@ def grammar_info_gen_helper(letter_labels, EVENT_LEN_S=3, separation_tok_in_word
         word_separation_tok = " "
         sent_separation_tok = "  "
         stimulus_text_content = (
-            "\n".join(
-                [
-                    "".join(p).replace(sent_separation_tok, "\n")[1:]
-                    for p in letter_labels
-                ]
-            )
+            "\n".join(["".join(p).replace(sent_separation_tok, "\n")[1:] for p in letter_labels])
         ).replace("\n\n", "\n")
         stimulus_letters = np.unique([l for l in stimulus_text_content])
         letter_conversion_dict = {l: l for l in stimulus_letters}
@@ -1444,16 +1401,12 @@ def grammar_info_gen_helper(letter_labels, EVENT_LEN_S=3, separation_tok_in_word
             letter_space_conversion_dict["\n"] = "  "
             letter_space_conversion_dict[" "] = " "
 
-    stimulus_text_letter = "".join(
-        [letter_space_conversion_dict[l] for l in stimulus_text_content]
-    )
+    stimulus_text_letter = "".join([letter_space_conversion_dict[l] for l in stimulus_text_content])
 
     space_tok = "_space_"
     unique_stimulus_words = np.unique(stimulus_text_content.split()).tolist()
     mackenzie_soukoreff_content = mackenzie_soukoreff_corpus.lower()
-    unique_mackenzie_soukoreff_words = np.unique(
-        mackenzie_soukoreff_content.split()
-    ).tolist()
+    unique_mackenzie_soukoreff_words = np.unique(mackenzie_soukoreff_content.split()).tolist()
     # unique_stimulus_words += [" "]
     # unique_mackenzie_soukoreff_words += [" "]
 
@@ -1472,17 +1425,14 @@ def grammar_info_gen_helper(letter_labels, EVENT_LEN_S=3, separation_tok_in_word
     if separation_tok_in_word:
         additional_key_val["SENT-START"] = []
 
-    unique_stimulus_word_dictionary = {
-        w: [l for l in w if l != " "] for w in unique_stimulus_words
-    }
+    unique_stimulus_word_dictionary = {w: [l for l in w if l != " "] for w in unique_stimulus_words}
     unique_mackenzie_soukoreff_word_dictionary = {
         w: [l for l in w if l != " "] for w in unique_mackenzie_soukoreff_words
     }
     if separation_tok_in_word:
         word_sep_list = [l for l in word_separation_tok]
         unique_stimulus_word_dictionary = {
-            key: val + word_sep_list
-            for key, val in unique_stimulus_word_dictionary.items()
+            key: val + word_sep_list for key, val in unique_stimulus_word_dictionary.items()
         }
         unique_mackenzie_soukoreff_word_dictionary = {
             key: val + word_sep_list
@@ -1511,8 +1461,10 @@ def grammar_info_gen_helper(letter_labels, EVENT_LEN_S=3, separation_tok_in_word
             sentences_formed_by_stimulus_words_seperated_by_space_dict_grammar
         )
     )
-    sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_lattice_string = get_word_lattice_from_grammar(
-        sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_dict_grammar
+    sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_lattice_string = (
+        get_word_lattice_from_grammar(
+            sentences_formed_by_mackenzie_soukoreff_words_seperated_by_space_dict_grammar
+        )
     )
     stimulus_words_node_symbols, stimulus_words_link_start_end = parseLatticeString(
         sentences_formed_by_stimulus_words_seperated_by_space_lattice_string
@@ -1530,10 +1482,8 @@ def grammar_info_gen_helper(letter_labels, EVENT_LEN_S=3, separation_tok_in_word
     any_word_to_any_word_in_stimulus_lattice_string = get_word_lattice_from_grammar(
         any_word_to_any_word_in_stimulus_dict_grammar
     )
-    any_word_to_any_word_in_mackenzie_soukoreff_lattice_string = (
-        get_word_lattice_from_grammar(
-            any_word_to_any_word_in_mackenzie_soukoreff_dict_grammar
-        )
+    any_word_to_any_word_in_mackenzie_soukoreff_lattice_string = get_word_lattice_from_grammar(
+        any_word_to_any_word_in_mackenzie_soukoreff_dict_grammar
     )
     (
         aw2aw_stimulus_words_node_symbols,
@@ -1573,12 +1523,20 @@ def grammar_info_gen_helper(letter_labels, EVENT_LEN_S=3, separation_tok_in_word
     mackenzie_soukoreff_letter_bigram_count = get_two_gram_feat_vector(
         mackenzie_soukoreff_text_letter
     )
-    mackenzie_soukoreff_letter_prior_prob = mackenzie_soukoreff_letter_one_gram_count / np.sum(mackenzie_soukoreff_letter_one_gram_count)
-    mackenzie_soukoreff_letter_prior_prob_dict = {l:p for l, p in zip(letter_label, mackenzie_soukoreff_letter_prior_prob)}
+    mackenzie_soukoreff_letter_prior_prob = mackenzie_soukoreff_letter_one_gram_count / np.sum(
+        mackenzie_soukoreff_letter_one_gram_count
+    )
+    mackenzie_soukoreff_letter_prior_prob_dict = {
+        l: p for l, p in zip(letter_label, mackenzie_soukoreff_letter_prior_prob)
+    }
     stimulus_letter_one_gram_count = get_one_gram_feat_vector(stimulus_text_letter)
     stimulus_letter_bigram_count = get_two_gram_feat_vector(stimulus_text_letter)
-    stimulus_letter_prior_prob = stimulus_letter_one_gram_count / np.sum(stimulus_letter_one_gram_count)
-    stimulus_letter_prior_prob_dict = {l:p for l, p in zip(letter_label, stimulus_letter_prior_prob)}
+    stimulus_letter_prior_prob = stimulus_letter_one_gram_count / np.sum(
+        stimulus_letter_one_gram_count
+    )
+    stimulus_letter_prior_prob_dict = {
+        l: p for l, p in zip(letter_label, stimulus_letter_prior_prob)
+    }
 
     return {
         "word_separation_tok": word_separation_tok,
