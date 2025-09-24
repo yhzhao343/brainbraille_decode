@@ -30,9 +30,9 @@ def state_proba_to_letter_proba(state_proba, LETTERS_TO_DOT_array):
         state_proba_i = state_proba[time_i]
         for letter_i in range(len(LETTERS_TO_DOT_array)):
             letter_mask = LETTERS_TO_DOT_array[letter_i]
-            naive_state_proba[time_i, letter_i] = np.prod(state_proba_i[letter_mask]) * np.prod(
-                1 - state_proba_i[~letter_mask]
-            )
+            naive_state_proba[time_i, letter_i] = np.prod(
+                state_proba_i[letter_mask]
+            ) * np.prod(1 - state_proba_i[~letter_mask])
         naive_state_proba[time_i, :] /= naive_state_proba[time_i, :].sum()
         naive_state_ind[time_i] = np.argmax(naive_state_proba[time_i, :])
     return naive_state_proba, naive_state_ind
@@ -73,7 +73,8 @@ def softmax(scores):
 
 def letter_label_to_transition_label(y, LETTERS_TO_DOT, region_order):
     dot_label = [
-        [[LETTERS_TO_DOT[l_i][region] for region in region_order] for l_i in run_i] for run_i in y
+        [[LETTERS_TO_DOT[l_i][region] for region in region_order] for l_i in run_i]
+        for run_i in y
     ]
     transition_label = [
         [
@@ -86,9 +87,10 @@ def letter_label_to_transition_label(y, LETTERS_TO_DOT, region_order):
 
 
 def letter_label_to_state_label(y, LETTERS_TO_DOT, region_order):
-    dot_label = np.array(
-        [[[LETTERS_TO_DOT[l_i][region] for region in region_order] for l_i in run_i] for run_i in y]
-    )
+    dot_label = [
+        [[LETTERS_TO_DOT[l_i][region] for region in region_order] for l_i in run_i]
+        for run_i in y
+    ]
     return dot_label
 
 
@@ -99,7 +101,9 @@ def letter_label_to_state_label(y, LETTERS_TO_DOT, region_order):
     fastmath=True,
     cache=True,
 )
-def get_naive_letter_prob(state_prob_by_type_run_i, region_by_letter_arr, naive_letter_prob):
+def get_naive_letter_prob(
+    state_prob_by_type_run_i, region_by_letter_arr, naive_letter_prob
+):
     t = state_prob_by_type_run_i.shape[0]
     l = region_by_letter_arr.shape[0]
     naive_letter_prob[:, :] = 1
@@ -107,8 +111,12 @@ def get_naive_letter_prob(state_prob_by_type_run_i, region_by_letter_arr, naive_
         r_by_l_i = region_by_letter_arr[l_i]
         not_r_by_l_i = np.logical_not(r_by_l_i)
         for t_i in range(t):
-            naive_letter_prob[t_i][l_i] *= np.prod(state_prob_by_type_run_i[t_i][r_by_l_i])
-            naive_letter_prob[t_i][l_i] *= np.prod(1 - state_prob_by_type_run_i[t_i][not_r_by_l_i])
+            naive_letter_prob[t_i][l_i] *= np.prod(
+                state_prob_by_type_run_i[t_i][r_by_l_i]
+            )
+            naive_letter_prob[t_i][l_i] *= np.prod(
+                1 - state_prob_by_type_run_i[t_i][not_r_by_l_i]
+            )
     return naive_letter_prob
 
 
@@ -119,14 +127,18 @@ def get_naive_letter_prob(state_prob_by_type_run_i, region_by_letter_arr, naive_
     fastmath=True,
     cache=True,
 )
-def resolve_null_helper(curr_nodes_mask, non_end_null_node_mask, grammar_node_transition_table):
+def resolve_null_helper(
+    curr_nodes_mask, non_end_null_node_mask, grammar_node_transition_table
+):
     next_nodes_null_mask = np.logical_and(curr_nodes_mask, non_end_null_node_mask)
     has_null = np.any(next_nodes_null_mask)
     if has_null:
         # node_symbol_index_arr[next_nodes_null_mask]
         null_ind = np.arange(len(next_nodes_null_mask))[next_nodes_null_mask]
         curr_nodes_mask = np.logical_xor(curr_nodes_mask, next_nodes_null_mask)
-        null_next_nodes = np.count_nonzero(grammar_node_transition_table[null_ind], axis=0) > 0
+        null_next_nodes = (
+            np.count_nonzero(grammar_node_transition_table[null_ind], axis=0) > 0
+        )
         curr_nodes_mask = np.logical_or(curr_nodes_mask, null_next_nodes)
     return (has_null, curr_nodes_mask)
 
@@ -175,7 +187,9 @@ def letter_bigram_viterbi_with_grammar_decode(
 
     log_prob_table = np.log1p(letter_probs_array)
 
-    node_letters_len = np.array([len(spell) for spell in node_letters_spelling], dtype=np.int32)
+    node_letters_len = np.array(
+        [len(spell) for spell in node_letters_spelling], dtype=np.int32
+    )
     max_node_letters_len = np.max(node_letters_len)
     num_node = len(node_letters_spelling)
     node_letters_ind_spelling_mat = np.zeros((num_node, max_node_letters_len), np.int32)
@@ -364,9 +378,9 @@ def letter_bigram_viterbi_with_grammar_decode_numba_helper(
             for j in range(l - 1):
                 prev_l = node_letters_ind_spelling_mat[i, j]
                 next_l = node_letters_ind_spelling_mat[i, j + 1]
-                node_letters_ind_spelling_transition_modifier[i] += transition_log_prob_matrix[
-                    prev_l, next_l
-                ]
+                node_letters_ind_spelling_transition_modifier[
+                    i
+                ] += transition_log_prob_matrix[prev_l, next_l]
     grammar_node_transition_table[:, :] = False
     for indices in grammar_link_start_end:
         grammar_node_transition_table[indices[0], indices[1]] = True
@@ -383,7 +397,9 @@ def letter_bigram_viterbi_with_grammar_decode_numba_helper(
             max_null_resolve_count,
         )
 
-    next_node_indices = node_symbol_index_arr[resolve_next_null_cahce[dummy_start_node_ind]]
+    next_node_indices = node_symbol_index_arr[
+        resolve_next_null_cahce[dummy_start_node_ind]
+    ]
     curr_node_index = -1
     curr_node_end_i = -1
     bad_start_counter = 0
@@ -395,24 +411,31 @@ def letter_bigram_viterbi_with_grammar_decode_numba_helper(
         next_nodes_spelling = node_letters_ind_spelling_mat[next_node_index][
             : node_letters_len[next_node_index]
         ]
-        next_nodes_spelling_transition_modifier = node_letters_ind_spelling_transition_modifier[
-            next_node_index
-        ]
+        next_nodes_spelling_transition_modifier = (
+            node_letters_ind_spelling_transition_modifier[next_node_index]
+        )
         next_nodes_emission_prob = next_nodes_spelling_transition_modifier
         for letter_i, letter in enumerate(next_nodes_spelling):
-            next_nodes_emission_prob += log_prob_table[letter][curr_node_end_i + 1 + letter_i]
+            next_nodes_emission_prob += log_prob_table[letter][
+                curr_node_end_i + 1 + letter_i
+            ]
         if (
             next_nodes_emission_prob
-            > emission_word_log_prob_table[next_node_index, curr_node_end_i + next_node_len]
+            > emission_word_log_prob_table[
+                next_node_index, curr_node_end_i + next_node_len
+            ]
         ):
             emission_word_log_prob_table[
                 next_node_index, curr_node_end_i + next_node_len
             ] = next_nodes_emission_prob
-            prev_word_table[next_node_index, curr_node_end_i + next_node_len] = curr_node_index
+            prev_word_table[
+                next_node_index, curr_node_end_i + next_node_len
+            ] = curr_node_index
 
     if bad_start_counter == len(next_node_indices):
         raise ValueError(
-            "Invalid grammar!, Start node spelling length is longer " + "than the entire sequence"
+            "Invalid grammar!, Start node spelling length is longer "
+            + "than the entire sequence"
         )
 
     for curr_node_end_i in range(0, num_entry):
@@ -426,9 +449,13 @@ def letter_bigram_viterbi_with_grammar_decode_numba_helper(
             continue
 
         for curr_node_index in curr_node_indice:
-            cur_log_prob = emission_word_log_prob_table[curr_node_index, curr_node_end_i]
+            cur_log_prob = emission_word_log_prob_table[
+                curr_node_index, curr_node_end_i
+            ]
             next_nodes_mask = resolve_next_null_cahce[curr_node_index]
-            next_nodes_mask = np.logical_and(next_nodes_mask, all_nodes_end_i_no_overflow)
+            next_nodes_mask = np.logical_and(
+                next_nodes_mask, all_nodes_end_i_no_overflow
+            )
             has_end = next_nodes_mask[end_node_index]
             next_nodes_mask[end_node_index] = False
             next_nodes_indices = node_symbol_index_arr[next_nodes_mask]
@@ -440,7 +467,9 @@ def letter_bigram_viterbi_with_grammar_decode_numba_helper(
                 next_nodes_spelling_transition_modifier = (
                     node_letters_ind_spelling_transition_modifier[next_nodes_mask]
                 )
-                next_nodes_spelling_probs = np.zeros(len(next_nodes_spelling_len), dtype=np.float64)
+                next_nodes_spelling_probs = np.zeros(
+                    len(next_nodes_spelling_len), dtype=np.float64
+                )
                 for s_i in range(len(next_nodes_spelling_len)):
                     for letter_i in range(next_nodes_spelling_len[s_i]):
                         next_nodes_spelling_probs[s_i] += log_prob_table[
@@ -450,9 +479,11 @@ def letter_bigram_viterbi_with_grammar_decode_numba_helper(
                 curr_node_log_prob_trans = transition_log_prob_matrix[
                     node_letters_ind_last_letter[curr_node_index]
                 ]
-                next_nodes_transition_log_prob_from_current_node = curr_node_log_prob_trans[
-                    node_letters_ind_first_letter[next_nodes_mask]
-                ]
+                next_nodes_transition_log_prob_from_current_node = (
+                    curr_node_log_prob_trans[
+                        node_letters_ind_first_letter[next_nodes_mask]
+                    ]
+                )
                 next_nodes_new_emission_log_probs = (
                     insert_panelty
                     + cur_log_prob
@@ -467,16 +498,26 @@ def letter_bigram_viterbi_with_grammar_decode_numba_helper(
                     next_nodes_emission_log_probs_i = emission_word_log_prob_table[
                         next_node_i, end_i
                     ]
-                    if next_nodes_new_emission_log_probs[i] > next_nodes_emission_log_probs_i:
-                        next_nodes_emission_log_probs_i = next_nodes_new_emission_log_probs[i]
+                    if (
+                        next_nodes_new_emission_log_probs[i]
+                        > next_nodes_emission_log_probs_i
+                    ):
+                        next_nodes_emission_log_probs_i = (
+                            next_nodes_new_emission_log_probs[i]
+                        )
                         emission_word_log_prob_table[
                             next_node_i, end_i
                         ] = next_nodes_emission_log_probs_i
                         prev_word_table[next_node_i, end_i] = curr_node_index
 
             if has_end:
-                if cur_log_prob > emission_word_log_prob_table[end_node_index, curr_node_end_i]:
-                    emission_word_log_prob_table[end_node_index, curr_node_end_i] = cur_log_prob
+                if (
+                    cur_log_prob
+                    > emission_word_log_prob_table[end_node_index, curr_node_end_i]
+                ):
+                    emission_word_log_prob_table[
+                        end_node_index, curr_node_end_i
+                    ] = cur_log_prob
                     prev_word_table[end_node_index, curr_node_end_i] = curr_node_index
 
     curr_node_entry_index = num_entry - 1
@@ -495,7 +536,9 @@ def letter_bigram_viterbi_with_grammar_decode_numba_helper(
 
 
 def clf_fit_pred_score(clf, train_X_i, train_y_i, test_X_i, test_y_i):
-    return accuracy_score(test_y_i, deepcopy(clf).fit(train_X_i, train_y_i).predict(test_X_i))
+    return accuracy_score(
+        test_y_i, deepcopy(clf).fit(train_X_i, train_y_i).predict(test_X_i)
+    )
 
 
 def clf_fit_pred_score_flatten(clf, train_X_i, train_y_i, test_X_i, test_y_i):
@@ -606,7 +649,9 @@ def extract_data_for_hp_tuning(
     train_valid_data_i,
     roi_extract_and_filter_i,
 ):
-    roi_extract_and_filter_i = roi_extract_and_filter_i.fit(train_train_data_i, train_train_label_i)
+    roi_extract_and_filter_i = roi_extract_and_filter_i.fit(
+        train_train_data_i, train_train_label_i
+    )
     train_train_X = roi_extract_and_filter_i.transform(train_train_data_i)
     train_valid_X = roi_extract_and_filter_i.transform(train_valid_data_i)
     return train_train_X, train_valid_X
@@ -839,21 +884,27 @@ def get_slices_and_extract_data(
                     else deepcopy(roi_extract_and_filter)
                 ),
             )
-            for train_train_i, train_valid_i in zip(train_train_i_list, train_valid_i_list)
+            for train_train_i, train_valid_i in zip(
+                train_train_i_list, train_valid_i_list
+            )
         )
     )
 
     train_train_letter_labels = [
-        [train_letter_label_i[i] for i in train_train_i] for train_train_i in train_train_i_list
+        [train_letter_label_i[i] for i in train_train_i]
+        for train_train_i in train_train_i_list
     ]
     train_valid_letter_labels = [
-        [train_letter_label_i[i] for i in train_valid_i] for train_valid_i in train_valid_i_list
+        [train_letter_label_i[i] for i in train_valid_i]
+        for train_valid_i in train_valid_i_list
     ]
     train_train_state_labels = [
-        [train_state_label_i[i] for i in train_train_i] for train_train_i in train_train_i_list
+        [train_state_label_i[i] for i in train_train_i]
+        for train_train_i in train_train_i_list
     ]
     train_valid_state_labels = [
-        [train_state_label_i[i] for i in train_valid_i] for train_valid_i in train_valid_i_list
+        [train_state_label_i[i] for i in train_valid_i]
+        for train_valid_i in train_valid_i_list
     ]
 
     if not flatten:
@@ -915,9 +966,15 @@ def get_slices_and_extract_data(
             for r_i in range(len(train_valid_state_flatten_labels[0][0]))
         ]
 
-        train_letter_flatten_label_i = [j for run_i in train_letter_label_i for j in run_i]
-        test_letter_flatten_label_i = [j for run_i in test_letter_label_i for j in run_i]
-        train_state_flatten_label_i = [j for run_i in train_state_label_i for j in run_i]
+        train_letter_flatten_label_i = [
+            j for run_i in train_letter_label_i for j in run_i
+        ]
+        test_letter_flatten_label_i = [
+            j for run_i in test_letter_label_i for j in run_i
+        ]
+        train_state_flatten_label_i = [
+            j for run_i in train_state_label_i for j in run_i
+        ]
         test_state_flatten_label_i = [j for run_i in test_state_label_i for j in run_i]
 
         return (
@@ -956,7 +1013,10 @@ def state_prob_to_letter_prob(predict_state_per_run, LETTERS_TO_DOT_array):
     )
 
     predict_naive_letter_prob_marg_per_run = np.array(
-        [run_i / run_i.sum(axis=1)[:, np.newaxis] for run_i in predict_naive_letter_prob_per_run]
+        [
+            run_i / run_i.sum(axis=1)[:, np.newaxis]
+            for run_i in predict_naive_letter_prob_per_run
+        ]
     )
     predict_naive_letter_prob_letter_index_per_run = [
         np.argmax(run_i, axis=1) for run_i in predict_naive_letter_prob_marg_per_run
@@ -1043,7 +1103,9 @@ def decode_acc_score(
     return np.mean(acc)
 
 
-def symbol_info_preprocess(letter_label, symbol_nodes, symbol_node_trans_pair, node_output_letter):
+def symbol_info_preprocess(
+    letter_label, symbol_nodes, symbol_node_trans_pair, node_output_letter
+):
     # TODO: add checks to throw error when there are null node besides end_node_ndx still exist
     symbol_node_trans_pair = np.array(symbol_node_trans_pair, dtype=np.uint32)
     letter_2_ind = {l: i for i, l in enumerate(letter_label)}
@@ -1060,13 +1122,17 @@ def symbol_info_preprocess(letter_label, symbol_nodes, symbol_node_trans_pair, n
         for letter_i, letter in enumerate(spelling):
             symbol_nodes_out_spelling_matrix[node_i][letter_i] = letter_2_ind[letter]
 
-    symbol_node_out_to_ndx = {symbol_node: i for i, symbol_node in enumerate(symbol_node_out_list)}
+    symbol_node_out_to_ndx = {
+        symbol_node: i for i, symbol_node in enumerate(symbol_node_out_list)
+    }
     symbol_nodes_spelling_ndx = np.array(
         [symbol_node_out_to_ndx[symbol_node] for symbol_node in symbol_nodes],
         dtype=np.uint32,
     )
     num_symbol_nodes = len(symbol_nodes)
-    symbol_node_trans_matrix = np.zeros((num_symbol_nodes, num_symbol_nodes), dtype=np.bool_)
+    symbol_node_trans_matrix = np.zeros(
+        (num_symbol_nodes, num_symbol_nodes), dtype=np.bool_
+    )
     symbol_node_trans = np.zeros((num_symbol_nodes, num_symbol_nodes), dtype=np.bool_)
 
     dummy_start_node_i = num_symbol_nodes - 1
@@ -1110,7 +1176,9 @@ def get_symbol_node_trans(
     """Resolve transition to !NULL state in symbol node transition matrix"""
     num_symbol_nodes = len(symbol_nodes_spelling_ndx)
     for i in range(len(symbol_node_trans_pair)):
-        symbol_node_trans_matrix[symbol_node_trans_pair[i][0], symbol_node_trans_pair[i][1]] = True
+        symbol_node_trans_matrix[
+            symbol_node_trans_pair[i][0], symbol_node_trans_pair[i][1]
+        ] = True
     for resolve_i in range(n_resolve):
         for i in range(num_symbol_nodes):
             if symbol_nodes_out_len[symbol_nodes_spelling_ndx[i]] == 0:
@@ -1119,7 +1187,8 @@ def get_symbol_node_trans(
                         if symbol_node_trans_matrix[j][i]:
                             symbol_node_trans_matrix[j][i] = False
                             symbol_node_trans_matrix[j] = (
-                                symbol_node_trans_matrix[j] | symbol_node_trans_matrix[i]
+                                symbol_node_trans_matrix[j]
+                                | symbol_node_trans_matrix[i]
                             )
     for i in range(num_symbol_nodes):
         for j in range(num_symbol_nodes):
@@ -1134,7 +1203,9 @@ def get_symbol_node_trans(
     parallel=False,
     cache=True,
 )
-def joint_proba_of_hidden_state_sequence(log_emi_proba, log_trans_proba, hidden_state_ind, offset):
+def joint_proba_of_hidden_state_sequence(
+    log_emi_proba, log_trans_proba, hidden_state_ind, offset
+):
     log_joint_proba = 0
     for i, letter in enumerate(hidden_state_ind):
         log_joint_proba += log_emi_proba[offset + i][letter]
