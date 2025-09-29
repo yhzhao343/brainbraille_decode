@@ -646,14 +646,34 @@ def pp_array(arr, delimiter="\t"):
 def extract_data_for_hp_tuning(
     train_train_data_i,
     train_train_label_i,
+    train_train_delay_frame_i,
     train_valid_data_i,
+    train_valid_delay_frame_i,
     roi_extract_and_filter_i,
 ):
     roi_extract_and_filter_i = roi_extract_and_filter_i.fit(
         train_train_data_i, train_train_label_i
     )
-    train_train_X = roi_extract_and_filter_i.transform(train_train_data_i)
-    train_valid_X = roi_extract_and_filter_i.transform(train_valid_data_i)
+    train_train_X = np.array(
+        [
+            deepcopy(roi_extract_and_filter_i)
+            .set_params(sliding_window__delay_frame=delay_i)
+            .transform([d_i])[0]
+            for d_i, delay_i in zip(train_train_data_i, train_train_delay_frame_i)
+        ]
+    )
+    # train_train_X = roi_extract_and_filter_i.transform(train_train_data_i)
+    train_valid_X = np.array(
+        [
+            deepcopy(roi_extract_and_filter_i)
+            .set_params(sliding_window__delay_frame=delay_i)
+            .transform([d_i])[0]
+            for d_i, delay_i in zip(train_valid_data_i, train_valid_delay_frame_i)
+        ]
+    )
+
+    # train_valid_X = roi_extract_and_filter_i.transform(train_valid_data_i)
+
     return train_train_X, train_valid_X
 
 
@@ -861,10 +881,12 @@ def get_slices_and_extract_data(
     train_data_i = [per_run_data[i] for i in train_per_run_data_index]
     train_letter_label_i = [d_i["letter_label"] for d_i in train_data_i]
     train_state_label_i = [d_i["state_label"] for d_i in train_data_i]
+    train_delay_frame_i = [d_i["DELAY_FRAME"] for d_i in train_data_i]
 
     test_data_i = [per_run_data[i] for i in test_per_run_data_index]
     test_letter_label_i = [d_i["letter_label"] for d_i in test_data_i]
     test_state_label_i = [d_i["state_label"] for d_i in test_data_i]
+    test_delay_frame_i = [d_i["DELAY_FRAME"] for d_i in test_data_i]
 
     train_sub_i = [subs[i] for i in train_per_run_data_index]
     test_sub_i = [subs[i] for i in test_per_run_data_index]
@@ -874,7 +896,9 @@ def get_slices_and_extract_data(
             delayed(extract_data_for_hp_tuning)(
                 [train_data_i[i] for i in train_train_i],
                 [train_letter_label_i[i] for i in train_train_i],
+                [train_delay_frame_i[i] for i in train_train_i],
                 [train_data_i[i] for i in train_valid_i],
+                [train_delay_frame_i[i] for i in train_valid_i],
                 (
                     deepcopy(roi_extract_and_filter).set_params(
                         z_norm__train_group=[train_sub_i[i] for i in train_train_i],
@@ -910,8 +934,10 @@ def get_slices_and_extract_data(
     if not flatten:
         return (
             train_letter_label_i,
+            train_delay_frame_i,
             test_letter_label_i,
             train_state_label_i,
+            test_delay_frame_i,
             test_state_label_i,
             # train_train_extracted_flatten_Xs,
             train_train_extracted_Xs,
@@ -979,8 +1005,10 @@ def get_slices_and_extract_data(
 
         return (
             train_letter_label_i,
+            train_delay_frame_i,
             test_letter_label_i,
             train_state_label_i,
+            test_delay_frame_i,
             test_state_label_i,
             train_train_extracted_flatten_Xs,
             train_train_state_flatten_labels,

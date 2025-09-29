@@ -139,7 +139,11 @@ class LeadingTrailingDataSlice(BaseEstimator, TransformerMixin):
 
     def transform(self, X):
         slice_indice_start = (
-            np.arange(0, self.event_interval_frame * self.num_slices, self.event_interval_frame)
+            np.arange(
+                0,
+                self.event_interval_frame * self.num_slices,
+                self.event_interval_frame,
+            )
             + self.delay_frame
             - self.leading_frame
         )
@@ -151,6 +155,7 @@ class LeadingTrailingDataSlice(BaseEstimator, TransformerMixin):
         )
         # print(slice_indice_start)
         # print(slice_indice_end)
+        # print(f"first slice index: {slice_indice_start[0]} - {slice_indice_end[0]}")
         first_frame_index = slice_indice_start[0]
         temp_X = [x_i.copy() for x_i in X]
         if first_frame_index < 0:
@@ -398,7 +403,8 @@ class ROIandCalibrationExtractor(BaseEstimator, TransformerMixin):
             [
                 np.array(
                     x_i["flatten_func_image"][
-                        self.get_calib_roi_by_sub(int(x_i["sub"]))[x_i["motor_mask"]], :min_len
+                        self.get_calib_roi_by_sub(int(x_i["sub"]))[x_i["motor_mask"]],
+                        :min_len,
                     ]
                 ).sum(axis=0)
                 for x_i in X
