@@ -165,3 +165,16 @@ class BrainBrailleCVGen:
             test_index_list.extend(test_i)
             train_index_list.extend(train_i)
         return train_index_list, test_index_list
+
+    def ses_independent_leave_one_ses_out_test_ses(self, ses=1):
+        return [self.index[self.sess != ses]], [self.index[self.sess == ses]]
+
+    def ses_independent_leave_one_ses_out(self):
+        unique_ses = np.unique(self.sess)
+        test_index_list = []
+        train_index_list = []
+        for ses_i in unique_ses:
+            train_i, test_i = self.ses_independent_leave_one_ses_out_test_ses(ses_i)
+            test_index_list.extend(test_i)
+            train_index_list.extend(train_i)
+        return train_index_list, test_index_list

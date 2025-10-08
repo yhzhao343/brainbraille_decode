@@ -116,6 +116,9 @@ class LeadingTrailingDataSlice(BaseEstimator, TransformerMixin):
         fill_moving_avg_len_frame=None,
         num_slices=0,
         feature_mask=None,
+        leading_frames=None,
+        trailling_frames=None,
+        delay_frames=None,
     ):
         self.leading_frame = leading_frame
         self.event_len_frame = event_len_frame
@@ -128,6 +131,9 @@ class LeadingTrailingDataSlice(BaseEstimator, TransformerMixin):
             self.fill_moving_avg_len_frame = fill_moving_avg_len_frame
         self.num_slices = num_slices
         self.feature_mask = feature_mask
+        self.leading_frames = leading_frames
+        self.trailling_frames = trailling_frames
+        self.delay_frames = delay_frames
 
     def fit(self, X, y=None, num_slices=None):
         if (num_slices is None) or (num_slices <= 0):
@@ -138,56 +144,67 @@ class LeadingTrailingDataSlice(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X):
-        slice_indice_start = (
-            np.arange(
-                0,
-                self.event_interval_frame * self.num_slices,
-                self.event_interval_frame,
-            )
-            + self.delay_frame
-            - self.leading_frame
-        )
-        slice_indice_end = (
-            slice_indice_start
-            + self.leading_frame
-            + self.event_len_frame
-            + self.trailling_frame
-        )
-        # print(slice_indice_start)
-        # print(slice_indice_end)
-        # print(f"first slice index: {slice_indice_start[0]} - {slice_indice_end[0]}")
-        first_frame_index = slice_indice_start[0]
         temp_X = [x_i.copy() for x_i in X]
-        if first_frame_index < 0:
-            num_frame_to_front_fill = -first_frame_index
-            slice_indice_start += num_frame_to_front_fill
-            slice_indice_end += num_frame_to_front_fill
-            for i in range(len(temp_X)):
-                x_i = temp_X[i]
-                x_temp = np.zeros(
-                    (x_i.shape[0] + num_frame_to_front_fill, x_i.shape[1]),
-                    dtype=x_i.dtype,
-                )
-                x_temp[
-                    num_frame_to_front_fill : (num_frame_to_front_fill + x_i.shape[0]),
-                    :,
-                ] = x_i
-                for j in range(num_frame_to_front_fill):
-                    front_fill_frame = num_frame_to_front_fill - 1 - j
-                    x_temp[front_fill_frame, :] = np.mean(
-                        x_temp[
-                            front_fill_frame
-                            + 1 : front_fill_frame
-                            + 1
-                            + self.fill_moving_avg_len_frame,
-                            :,
-                        ],
-                        axis=0,
-                    )
-                temp_X[i] = x_temp
+        if self.leading_frames is None:
+            self.leading_frames = [self.leading_frame] * len(temp_X)
+        if self.trailling_frames is None:
+            self.trailling_frames = [self.trailling_frame] * len(temp_X)
+        if self.delay_frames is None:
+            self.delay_frames = [self.delay_frame] * len(temp_X)
 
-        last_frame_index = slice_indice_end[-1]
+        base_slice_indices = np.arange(
+            0,
+            self.event_interval_frame * self.num_slices,
+            self.event_interval_frame,
+        )
+        slice_indice_starts = [
+            base_slice_indices + delay_frame - leading_frame
+            for delay_frame, leading_frame in zip(
+                self.delay_frames, self.leading_frames
+            )
+        ]
+
+        slice_indice_ends = [
+            slice_indice_start + leading_frame + self.event_len_frame + trailling_frame
+            for leading_frame, trailling_frame, slice_indice_start in zip(
+                self.leading_frames, self.trailling_frames, slice_indice_starts
+            )
+        ]
+
         for i in range(len(temp_X)):
+            first_frame_index = slice_indice_starts[i][0]
+            if first_frame_index < 0:
+                num_frame_to_front_fill = -first_frame_index
+                slice_indice_starts[i] += num_frame_to_front_fill
+                slice_indice_ends[i] += num_frame_to_front_fill
+                for i in range(len(temp_X)):
+                    x_i = temp_X[i]
+                    x_temp = np.zeros(
+                        (x_i.shape[0] + num_frame_to_front_fill, x_i.shape[1]),
+                        dtype=x_i.dtype,
+                    )
+                    x_temp[
+                        num_frame_to_front_fill : (
+                            num_frame_to_front_fill + x_i.shape[0]
+                        ),
+                        :,
+                    ] = x_i
+                    for j in range(num_frame_to_front_fill):
+                        front_fill_frame = num_frame_to_front_fill - 1 - j
+                        x_temp[front_fill_frame, :] = np.mean(
+                            x_temp[
+                                front_fill_frame
+                                + 1 : front_fill_frame
+                                + 1
+                                + self.fill_moving_avg_len_frame,
+                                :,
+                            ],
+                            axis=0,
+                        )
+                    temp_X[i] = x_temp
+
+        for i in range(len(temp_X)):
+            last_frame_index = slice_indice_ends[i][-1]
             x_i = temp_X[i]
             if x_i.shape[0] < last_frame_index:
                 num_frame_to_back_fill = last_frame_index - x_i.shape[0] + 1
@@ -204,15 +221,16 @@ class LeadingTrailingDataSlice(BaseEstimator, TransformerMixin):
                         axis=0,
                     )
                 temp_X[i] = x_temp
-        # print(slice_indice_start)
-        # print(slice_indice_end)
+
         sliced_x = np.array(
             [
                 [
                     x_i[start_i:end_i, :]
                     for start_i, end_i in zip(slice_indice_start, slice_indice_end)
                 ]
-                for x_i in temp_X
+                for x_i, slice_indice_start, slice_indice_end in zip(
+                    temp_X, slice_indice_starts, slice_indice_ends
+                )
             ]
         )
         if self.feature_mask is not None:
